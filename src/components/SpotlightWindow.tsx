@@ -32,6 +32,7 @@ import {
   isTauri,
   listenWindowShown,
   loadSettings,
+  openExternalUrl,
   resolveHost,
   saveSettings,
 } from "../lib/tauri";
@@ -446,16 +447,15 @@ export function SpotlightWindow() {
               {t(currentLang, "footerHide")}
             </span>
             <span className="flex items-center gap-2 text-zinc-600">
-              <a
-                href="https://github.com/jaimitus/SpotAI"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-zinc-500 hover:text-cyan-400 transition"
+              <button
+                type="button"
+                onClick={() => void openExternalUrl("https://github.com/jaimitus/SpotAI")}
+                className="inline-flex items-center gap-1 text-zinc-500 hover:text-cyan-400 transition cursor-pointer"
                 title="SpotAI v1.1.0 on GitHub"
               >
                 <ExternalLink className="h-3 w-3" />
                 <span>v1.1.0</span>
-              </a>
+              </button>
               <span>|</span>
               <span>
                 {provider === "ollama" || provider === "lmstudio"

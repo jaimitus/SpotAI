@@ -189,3 +189,15 @@ export function resolveHost(
   if (provider === "lmstudio") return settings.lmstudioHost;
   return null;
 }
+
+export async function openExternalUrl(url: string): Promise<void> {
+  if (isTauri()) {
+    try {
+      await invoke("open_external_url", { url });
+      return;
+    } catch {
+      // Fallback
+    }
+  }
+  window.open(url, "_blank", "noreferrer");
+}

@@ -60,6 +60,7 @@ pub fn run() {
             commands::hide_window,
             commands::show_window,
             commands::check_ollama_health,
+            commands::open_external_url,
         ])
         .setup(|app| {
             let shortcut_status = app.state::<commands::ShortcutRegistration>();

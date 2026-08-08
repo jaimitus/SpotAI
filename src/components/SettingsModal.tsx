@@ -17,6 +17,7 @@ import {
   checkOllamaHealth,
   deleteApiKey,
   getApiKeyStatus,
+  openExternalUrl,
   saveApiKeys,
   saveSettings,
 } from "../lib/tauri";
@@ -495,15 +496,14 @@ export function SettingsModal({
           <div className="flex items-center gap-2 text-[11px] text-zinc-500">
             <span className="font-medium text-zinc-300">SpotAI v1.1.0</span>
             <span className="text-zinc-700">•</span>
-            <a
-              href="https://github.com/jaimitus/SpotAI"
-              target="_blank"
-              rel="noreferrer"
+            <button
+              type="button"
+              onClick={() => void openExternalUrl("https://github.com/jaimitus/SpotAI")}
               className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 hover:underline transition"
             >
               <ExternalLink className="h-3.5 w-3.5" />
               GitHub Repo
-            </a>
+            </button>
           </div>
 
           <div className="flex items-center gap-2">
