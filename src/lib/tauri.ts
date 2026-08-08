@@ -149,6 +149,7 @@ export async function deleteApiKey(provider: string): Promise<void> {
 
 export function loadSettings(): AppSettings {
   const defaults: AppSettings = {
+    language: "en",
     ollamaHost: "http://127.0.0.1:11434",
     lmstudioHost: "http://127.0.0.1:1234",
     defaultProvider: "ollama",
@@ -156,6 +157,7 @@ export function loadSettings(): AppSettings {
     globalShortcut: "Alt+Space",
     temperature: 0.7,
     maxTokens: 4096,
+    customActions: [],
   };
   try {
     const value = localStorage.getItem(SETTINGS_KEY);

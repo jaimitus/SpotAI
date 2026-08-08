@@ -12,13 +12,15 @@ import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { autoInsertText, isTauri, setClipboardText } from "../lib/tauri";
-import type { StreamStatus } from "../types";
+import { t } from "../lib/i18n";
+import type { Language, StreamStatus } from "../types";
 import { cn } from "../utils/cn";
 
 interface ResponsePanelProps {
   response: string;
   status: StreamStatus;
   error: string | null;
+  lang?: Language;
   onStop: () => void;
   onClear: () => void;
 }
@@ -27,6 +29,7 @@ export function ResponsePanel({
   response,
   status,
   error,
+  lang = "en",
   onStop,
   onClear,
 }: ResponsePanelProps) {
@@ -138,7 +141,7 @@ export function ResponsePanel({
           {status === "streaming" ? (
             <>
               <Loader2 className="h-3 w-3 animate-spin text-cyan-400" />
-              <span className="text-cyan-300/80">Streaming</span>
+              <span className="text-cyan-300/80">{t(lang, "streaming")}</span>
               <span className="inline-flex gap-0.5">
                 <span className="h-1 w-1 animate-pulse rounded-full bg-cyan-400" />
                 <span className="h-1 w-1 animate-pulse rounded-full bg-cyan-400 [animation-delay:150ms]" />
@@ -146,11 +149,11 @@ export function ResponsePanel({
               </span>
             </>
           ) : status === "error" ? (
-            <span className="text-rose-400">Error</span>
+            <span className="text-rose-400">{t(lang, "error")}</span>
           ) : status === "done" ? (
-            <span className="text-emerald-400/80">Done</span>
+            <span className="text-emerald-400/80">{t(lang, "done")}</span>
           ) : (
-            <span>Response</span>
+            <span>{t(lang, "response")}</span>
           )}
         </div>
 
@@ -162,7 +165,7 @@ export function ResponsePanel({
               className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
             >
               <Square className="h-3 w-3 fill-current" />
-              Stop
+              {t(lang, "stop")}
             </button>
           )}
           {response && (
@@ -175,7 +178,7 @@ export function ResponsePanel({
                   className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
                 >
                   <CornerDownLeft className="h-3 w-3" />
-                  Auto-Insert
+                  {t(lang, "autoInsert")}
                 </button>
               )}
               <button
@@ -186,12 +189,12 @@ export function ResponsePanel({
                 {copied ? (
                   <>
                     <Check className="h-3 w-3 text-emerald-400" />
-                    <span className="text-emerald-400">Copied</span>
+                    <span className="text-emerald-400">{t(lang, "copied")}</span>
                   </>
                 ) : (
                   <>
                     <ClipboardCopy className="h-3 w-3" />
-                    Copy
+                    {t(lang, "copy")}
                   </>
                 )}
               </button>
@@ -204,7 +207,7 @@ export function ResponsePanel({
               className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
             >
               <Trash2 className="h-3 w-3" />
-              Clear
+              {t(lang, "clear")}
             </button>
           )}
         </div>

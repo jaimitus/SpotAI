@@ -18,6 +18,7 @@ import {
 } from "react";
 import { useClipboardContext } from "../hooks/useClipboardContext";
 import { useLLMStream } from "../hooks/useLLMStream";
+import { t } from "../lib/i18n";
 import { buildActionPrompt } from "../lib/prompts";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -33,7 +34,7 @@ import {
   resolveHost,
   saveSettings,
 } from "../lib/tauri";
-import type { ActionChipId, AppSettings, ModelInfo, ProviderId } from "../types";
+import type { ActionChipId, AppSettings, CustomAction, ModelInfo, ProviderId } from "../types";
 import { cn } from "../utils/cn";
 import { ActionChips } from "./ActionChips";
 import { ProviderBadge } from "./ProviderBadge";
@@ -45,7 +46,7 @@ export function SpotlightWindow() {
   const [provider, setProvider] = useState<ProviderId>(settings.defaultProvider);
   const [model, setModel] = useState(settings.defaultModel);
   const [prompt, setPrompt] = useState("");
-  const [activeAction, setActiveAction] = useState<ActionChipId | null>(null);
+  const [activeAction, setActiveAction] = useState<string | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ollamaOnline, setOllamaOnline] = useState(false);
@@ -56,6 +57,7 @@ export function SpotlightWindow() {
   const { contextText, clearContext, refresh, truncated } = useClipboardContext();
   const { response, status, error, start, stop, reset } = useLLMStream();
 
+  const currentLang = settings.language || "en";
   const isStreaming = status === "streaming";
   const hasResponse = Boolean(response) || status !== "idle";
 
@@ -95,9 +97,9 @@ export function SpotlightWindow() {
   useEffect(() => {
     void reloadModels(settings);
     void getShortcutStatus().then((status) => {
-      setShortcutError(status.registered ? null : status.error || "Alt+Space is unavailable");
+      setShortcutError(status.registered ? null : status.error || t(currentLang, "shortcutUnavailable"));
     });
-  }, [settings, reloadModels]);
+  }, [settings, reloadModels, currentLang]);
 
   useEffect(() => {
     if (hasResponse && isTauri()) {
@@ -125,7 +127,6 @@ export function SpotlightWindow() {
     });
 
     const onKey = (e: globalThis.KeyboardEvent) => {
-      // Escape hides the launcher unless it first needs to stop or clear work.
       if (e.key === "Escape" && !settingsOpen) {
         e.preventDefault();
         if (isStreaming) {
@@ -138,7 +139,6 @@ export function SpotlightWindow() {
           void hideWindow();
         }
       }
-      // Ctrl/Cmd + ,
       if ((e.ctrlKey || e.metaKey) && e.key === ",") {
         e.preventDefault();
         setSettingsOpen(true);
@@ -165,7 +165,19 @@ export function SpotlightWindow() {
     setPrompt(template);
     requestAnimationFrame(() => {
       inputRef.current?.focus();
-      // Place caret at end
+      const el = inputRef.current;
+      if (el) {
+        el.selectionStart = el.value.length;
+        el.selectionEnd = el.value.length;
+      }
+    });
+  };
+
+  const handleSelectCustomAction = (customAction: CustomAction) => {
+    setActiveAction(customAction.id);
+    setPrompt(customAction.prompt);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
       const el = inputRef.current;
       if (el) {
         el.selectionStart = el.value.length;
@@ -186,7 +198,7 @@ export function SpotlightWindow() {
 
     let finalPrompt = prompt.trim();
     if (!finalPrompt && contextText) {
-      finalPrompt = buildActionPrompt(activeAction ?? "explain");
+      finalPrompt = buildActionPrompt("explain");
     }
 
     await start({
@@ -262,10 +274,10 @@ export function SpotlightWindow() {
                 title={shortcutError ?? undefined}
               >
                 {booting
-                  ? "Starting..."
+                  ? t(currentLang, "starting")
                   : shortcutError
-                    ? "Alt+Space is unavailable"
-                    : "Alt+Space | AI spotlight"}
+                    ? t(currentLang, "shortcutUnavailable")
+                    : t(currentLang, "shortcutLabel")}
               </div>
             </div>
           </div>
@@ -284,7 +296,7 @@ export function SpotlightWindow() {
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
-              title="Settings (Ctrl+,)"
+              title={t(currentLang, "settingsTitle")}
               className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300"
             >
               <Settings2 className="h-4 w-4" />
@@ -292,7 +304,7 @@ export function SpotlightWindow() {
             <button
               type="button"
               onClick={() => void hideWindow()}
-              title="Hide (Esc)"
+              title={t(currentLang, "hideTitle")}
               className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300"
             >
               <X className="h-4 w-4" />
@@ -306,14 +318,14 @@ export function SpotlightWindow() {
             <Clipboard className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-400/80" />
             <div className="min-w-0 flex-1">
               <div className="mb-0.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-cyan-400/70">
-                Captured context
+                {t(currentLang, "capturedContext")}
                 {truncated && (
                   <span className="normal-case tracking-normal text-amber-400/80">
-                    truncated
+                    {t(currentLang, "truncated")}
                   </span>
                 )}
                 <span className="font-normal normal-case tracking-normal text-zinc-600">
-                  {contextText.length.toLocaleString()} chars
+                  {contextText.length.toLocaleString()} {t(currentLang, "chars")}
                 </span>
               </div>
               <p className="line-clamp-2 whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-zinc-400">
@@ -325,14 +337,14 @@ export function SpotlightWindow() {
               onClick={clearContext}
               className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300"
             >
-              Dismiss
+              {t(currentLang, "dismiss")}
             </button>
             <button
               type="button"
               onClick={() => void refresh()}
               className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300"
             >
-              Refresh
+              {t(currentLang, "refresh")}
             </button>
           </div>
         )}
@@ -353,8 +365,8 @@ export function SpotlightWindow() {
               rows={hasResponse ? 2 : 3}
               placeholder={
                 contextText
-                  ? "Ask anything about the captured text or choose an action below"
-                  : "Ask anything... Explain code, refactor, or summarize"
+                  ? t(currentLang, "placeholderContext")
+                  : t(currentLang, "placeholderDefault")
               }
               className={cn(
                 "w-full resize-none bg-transparent px-3.5 py-3 pr-14",
@@ -367,6 +379,7 @@ export function SpotlightWindow() {
             <button
               type="submit"
               disabled={!canSubmit}
+              title={t(currentLang, "sendPrompt")}
               className={cn(
                 "absolute bottom-2.5 right-2.5 flex h-8 w-8 items-center justify-center rounded-lg transition-all",
                 canSubmit
@@ -383,12 +396,15 @@ export function SpotlightWindow() {
           </div>
         </form>
 
-        {/* Action chips */}
+        {/* Action chips (Built-in + Custom Prompt Buttons) */}
         <div className="px-3 py-2.5">
           <ActionChips
             active={activeAction}
             disabled={isStreaming}
             onSelect={handleAction}
+            onSelectCustom={handleSelectCustomAction}
+            customActions={settings.customActions || []}
+            lang={currentLang}
           />
         </div>
 
@@ -399,6 +415,7 @@ export function SpotlightWindow() {
               response={response}
               status={status}
               error={error}
+              lang={currentLang}
               onStop={() => void stop()}
               onClear={() => {
                 reset();
@@ -415,24 +432,26 @@ export function SpotlightWindow() {
               <kbd className="rounded border border-white/10 bg-white/[0.03] px-1 py-0.5 font-mono">
                 Enter
               </kbd>{" "}
-              run
+              {t(currentLang, "footerRun")}
               <span className="mx-1.5 text-zinc-700">|</span>
               <kbd className="rounded border border-white/10 bg-white/[0.03] px-1 py-0.5 font-mono">
                 Shift+Enter
               </kbd>{" "}
-              newline
+              {t(currentLang, "footerNewline")}
               <span className="mx-1.5 text-zinc-700">|</span>
               <kbd className="rounded border border-white/10 bg-white/[0.03] px-1 py-0.5 font-mono">
                 esc
               </kbd>{" "}
-              hide
+              {t(currentLang, "footerHide")}
             </span>
             <span className="text-zinc-600">
-              {provider === "ollama" || provider === "lmstudio" ? "Local" : "Cloud"} | {model}
+              {provider === "ollama" || provider === "lmstudio"
+                ? t(currentLang, "local")
+                : t(currentLang, "cloud")}{" "}
+              | {model}
             </span>
           </div>
         )}
-
       </div>
 
       <SettingsModal
@@ -441,6 +460,7 @@ export function SpotlightWindow() {
         onClose={() => setSettingsOpen(false)}
         onSave={(s) => {
           setSettings(s);
+          saveSettings(s);
         }}
       />
     </div>

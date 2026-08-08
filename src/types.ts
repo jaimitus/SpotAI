@@ -49,7 +49,17 @@ export interface ApiKeyStatus {
   deepseek?: string | null;
 }
 
+export type Language = "en" | "es" | "de";
+
+export interface CustomAction {
+  id: string;
+  label: string;
+  prompt: string;
+  icon?: "search" | "wrench" | "code" | "list" | "languages" | "wand" | "message" | "sparkles";
+}
+
 export interface AppSettings {
+  language: Language;
   ollamaHost: string;
   lmstudioHost: string;
   defaultProvider: ProviderId;
@@ -57,6 +67,7 @@ export interface AppSettings {
   globalShortcut: string;
   temperature: number;
   maxTokens: number;
+  customActions: CustomAction[];
 }
 
 export interface HealthStatus {
