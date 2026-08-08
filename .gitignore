@@ -1,0 +1,13 @@
+# Node
+node_modules/
+dist/
+dist_release/
+
+# Rust / Tauri
+src-tauri/target/
+
+# OS / IDE
+.vscode/
+.idea/
+.DS_Store
+*.log
