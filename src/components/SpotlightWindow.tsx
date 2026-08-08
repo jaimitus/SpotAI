@@ -1,6 +1,7 @@
 import {
   ArrowUp,
   Clipboard,
+  ExternalLink,
   Loader2,
   Settings2,
   Sparkles,
@@ -161,7 +162,7 @@ export function SpotlightWindow() {
 
   const handleAction = (id: ActionChipId) => {
     setActiveAction(id);
-    const template = buildActionPrompt(id);
+    const template = buildActionPrompt(id, undefined, currentLang);
     setPrompt(template);
     requestAnimationFrame(() => {
       inputRef.current?.focus();
@@ -198,7 +199,7 @@ export function SpotlightWindow() {
 
     let finalPrompt = prompt.trim();
     if (!finalPrompt && contextText) {
-      finalPrompt = buildActionPrompt("explain");
+      finalPrompt = buildActionPrompt("explain", undefined, currentLang);
     }
 
     await start({
@@ -444,11 +445,24 @@ export function SpotlightWindow() {
               </kbd>{" "}
               {t(currentLang, "footerHide")}
             </span>
-            <span className="text-zinc-600">
-              {provider === "ollama" || provider === "lmstudio"
-                ? t(currentLang, "local")
-                : t(currentLang, "cloud")}{" "}
-              | {model}
+            <span className="flex items-center gap-2 text-zinc-600">
+              <a
+                href="https://github.com/jaimitus/SpotAI"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-zinc-500 hover:text-cyan-400 transition"
+                title="SpotAI v1.1.0 on GitHub"
+              >
+                <ExternalLink className="h-3 w-3" />
+                <span>v1.1.0</span>
+              </a>
+              <span>|</span>
+              <span>
+                {provider === "ollama" || provider === "lmstudio"
+                  ? t(currentLang, "local")
+                  : t(currentLang, "cloud")}{" "}
+                | {model}
+              </span>
             </span>
           </div>
         )}

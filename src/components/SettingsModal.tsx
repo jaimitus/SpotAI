@@ -1,4 +1,5 @@
 import {
+  ExternalLink,
   Eye,
   EyeOff,
   Globe,
@@ -490,32 +491,48 @@ export function SettingsModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-3">
-          {saveError && (
-            <p className="mr-auto max-w-64 text-[10px] text-rose-300">
-              {saveError}
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg px-3 py-1.5 text-[12px] text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
-          >
-            {t(currentLang, "cancelButton")}
-          </button>
-          <button
-            type="button"
-            disabled={saving}
-            onClick={handleSave}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-[12px] font-medium transition",
-              "bg-cyan-500/90 text-zinc-950 hover:bg-cyan-400",
-              "disabled:opacity-60",
+        <div className="flex items-center justify-between border-t border-white/[0.06] px-5 py-3">
+          <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+            <span className="font-medium text-zinc-300">SpotAI v1.1.0</span>
+            <span className="text-zinc-700">•</span>
+            <a
+              href="https://github.com/jaimitus/SpotAI"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 hover:underline transition"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              GitHub Repo
+            </a>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {saveError && (
+              <p className="max-w-64 text-[10px] text-rose-300">
+                {saveError}
+              </p>
             )}
-          >
-            <Save className="h-3.5 w-3.5" />
-            {savedFlash ? t(currentLang, "copied") : t(currentLang, "saveButton")}
-          </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-3 py-1.5 text-[12px] text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+            >
+              {t(currentLang, "cancelButton")}
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={handleSave}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-[12px] font-medium transition",
+                "bg-cyan-500/90 text-zinc-950 hover:bg-cyan-400",
+                "disabled:opacity-60",
+              )}
+            >
+              <Save className="h-3.5 w-3.5" />
+              {savedFlash ? t(currentLang, "copied") : t(currentLang, "saveButton")}
+            </button>
+          </div>
         </div>
       </div>
     </div>
