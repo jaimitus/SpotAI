@@ -3,6 +3,11 @@ node_modules/
 dist/
 dist_release/
 
+# Compiled Binaries & Bundles
+*.exe
+*.msi
+*.zip
+
 # Rust / Tauri
 src-tauri/target/
 
