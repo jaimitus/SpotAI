@@ -4,6 +4,7 @@ import {
   EyeOff,
   Globe,
   Keyboard,
+  Loader2,
   Plus,
   RefreshCw,
   Save,
@@ -62,6 +63,7 @@ export function SettingsModal({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"general" | "providers" | "customButtons">("general");
   const [shortcutStatus, setShortcutStatus] = useState<ShortcutStatus | null>(null);
+  const [loading, setLoading] = useState(true);
 
   // New Custom Button Form state
   const [newLabel, setNewLabel] = useState("");
@@ -77,25 +79,44 @@ export function SettingsModal({
     });
     setKeys({});
     setSaveError(null);
+    setLoading(true);
+
+    // Hydrate the modal in parallel. We use allSettled so a slow / failed
+    // network call (e.g. Ollama down) does not block the rest of the UI
+    // and the user is never stuck waiting for the modal to become
+    // interactive.
+    let cancelled = false;
     void (async () => {
-      try {
-        setKeyStatus(await getApiKeyStatus());
-        const h = await checkOllamaHealth(settings.ollamaHost);
-        setHealth(h);
-        if (isTauri()) {
-          const s = await getShortcutStatus();
-          setShortcutStatus(s);
-          // Reconcile the draft with the backend truth so the UI never shows a
-          // stale value (e.g. if the user changed it in a previous session
-          // and we did not persist the change yet).
-          if (s.shortcut) {
-            setDraft((d) => ({ ...d, globalShortcut: s.shortcut! }));
-          }
-        }
-      } catch (cause) {
-        setSaveError(cause instanceof Error ? cause.message : String(cause));
+      const [keyResult, healthResult, shortcutResult] = await Promise.allSettled([
+        isTauri() ? getApiKeyStatus() : Promise.resolve({} as ApiKeyStatus),
+        checkOllamaHealth(settings.ollamaHost),
+        isTauri() ? getShortcutStatus() : Promise.resolve(null),
+      ]);
+      if (cancelled) return;
+      if (keyResult.status === "fulfilled") {
+        setKeyStatus(keyResult.value);
+      } else {
+        // eslint-disable-next-line no-console
+        console.warn("[spotai] getApiKeyStatus failed", keyResult.reason);
       }
+      if (healthResult.status === "fulfilled") {
+        setHealth(healthResult.value);
+      } else {
+        setHealth({ ollama: false, ollamaVersion: null });
+      }
+      if (shortcutResult.status === "fulfilled" && shortcutResult.value) {
+        const s = shortcutResult.value as ShortcutStatus;
+        setShortcutStatus(s);
+        if (s.shortcut) {
+          setDraft((d) => ({ ...d, globalShortcut: s.shortcut! }));
+        }
+      }
+      setLoading(false);
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [open, settings]);
 
   useEffect(() => {
@@ -247,6 +268,12 @@ export function SettingsModal({
               {label}
             </button>
           ))}
+          {loading && (
+            <span className="ml-auto inline-flex items-center gap-1.5 text-[10px] text-zinc-500">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {t(currentLang, "settingsLoading")}
+            </span>
+          )}
         </div>
 
         {/* Body */}

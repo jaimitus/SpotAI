@@ -68,6 +68,7 @@ export const translations = {
     // Settings Modal
     settingsHeader: "SpotAI Settings",
     settingsSubtitle: "Configure local/cloud AI models, custom prompt buttons, and interface language",
+    settingsLoading: "Loading…",
     tabGeneral: "General",
     tabProviders: "AI Providers",
     tabCustomButtons: "Custom Buttons",
@@ -162,6 +163,7 @@ export const translations = {
     // Settings Modal
     settingsHeader: "Ajustes de SpotAI",
     settingsSubtitle: "Configura modelos de IA locales/nube, botones personalizados e idioma",
+    settingsLoading: "Cargando…",
     tabGeneral: "General",
     tabProviders: "Proveedores IA",
     tabCustomButtons: "Botones Personalizados",
@@ -256,6 +258,7 @@ export const translations = {
     // Settings Modal
     settingsHeader: "SpotAI Einstellungen",
     settingsSubtitle: "Konfigurieren Sie KI-Modelle, eigene Buttons und Sprache",
+    settingsLoading: "Wird geladen…",
     tabGeneral: "Allgemein",
     tabProviders: "KI-Anbieter",
     tabCustomButtons: "Eigene Buttons",

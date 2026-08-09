@@ -597,30 +597,63 @@ pub struct HealthStatus {
     pub ollama_version: Option<String>,
 }
 
+/// Maximum time we are willing to wait for an Ollama `/api/version` reply
+/// before declaring the daemon offline. Kept intentionally short so the
+/// settings modal opens instantly even when Ollama is not running. The
+/// shared `AiHttpClient` has a 10 s connect timeout which is correct for
+/// streaming but far too long for a liveness probe.
+const OLLAMA_HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Lazily-built, short-timeout client dedicated to health probes. We keep
+/// this separate from the shared `AiHttpClient` so a slow first connect to
+/// an offline Ollama never makes the UI feel unresponsive.
+fn health_check_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(OLLAMA_HEALTH_TIMEOUT)
+        .timeout(OLLAMA_HEALTH_TIMEOUT)
+        .build()
+        .map_err(|error| format!("Could not build health client: {error}"))
+}
+
 #[tauri::command]
 pub async fn check_ollama_health(
-    client: State<'_, AiHttpClient>,
+    _client: State<'_, AiHttpClient>,
     host: Option<String>,
 ) -> Result<HealthStatus, String> {
     let host = host.unwrap_or_else(|| DEFAULT_OLLAMA_HOST.into());
     let url = format!("{}/api/version", host.trim().trim_end_matches('/'));
-    match client.0.get(url).send().await {
-        Ok(response) if response.status().is_success() => {
-            let version = response
-                .json::<serde_json::Value>()
-                .await
-                .ok()
-                .and_then(|value| value.get("version")?.as_str().map(str::to_owned));
-            Ok(HealthStatus {
-                ollama: true,
-                ollama_version: version,
-            })
+
+    // Build the short-timeout client on a blocking thread so a slow DNS
+    // lookup never freezes the UI thread, then race the request against a
+    // tokio timeout as a second layer of defence.
+    let probe = tauri::async_runtime::spawn_blocking(health_check_client)
+        .await
+        .map_err(|error| error.to_string())??;
+    let request = probe.get(&url).send();
+    let response = match tokio::time::timeout(OLLAMA_HEALTH_TIMEOUT, request).await {
+        Ok(Ok(response)) => response,
+        Ok(Err(_)) | Err(_) => {
+            return Ok(HealthStatus {
+                ollama: false,
+                ollama_version: None,
+            });
         }
-        _ => Ok(HealthStatus {
+    };
+    if !response.status().is_success() {
+        return Ok(HealthStatus {
             ollama: false,
             ollama_version: None,
-        }),
+        });
     }
+    let version = response
+        .json::<serde_json::Value>()
+        .await
+        .ok()
+        .and_then(|value| value.get("version")?.as_str().map(str::to_owned));
+    Ok(HealthStatus {
+        ollama: true,
+        ollama_version: version,
+    })
 }
 
 #[tauri::command]

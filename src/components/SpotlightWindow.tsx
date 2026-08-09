@@ -23,7 +23,6 @@ import { useHistory } from "../hooks/useHistory";
 import { useLLMStream } from "../hooks/useLLMStream";
 import { t } from "../lib/i18n";
 import { buildActionPrompt } from "../lib/prompts";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   checkOllamaHealth,
   fetchCloudModels,
@@ -381,23 +380,20 @@ export function SpotlightWindow() {
           "backdrop-blur-2xl overflow-hidden",
         )}
       >
-        {/* Title bar / drag region */}
+        {/* Title bar / drag region. We rely on Tauri's native
+            `data-tauri-drag-region` attribute combined with the CSS
+            `WebkitAppRegion: drag` so the OS handles dragging directly.
+            Mixing a custom `onMouseDown` with `startDragging()` interferes
+            with the click events on the header buttons (Settings, History,
+            Hide) because the native drag cancels `mouseup` if the cursor
+            moves between `mousedown` and `mouseup`. The result was that
+            clicking the Settings button felt like the click was "lost" and
+            the modal would not open until the user clicked it several
+            times. */}
         <div
           className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2 cursor-grab active:cursor-grabbing select-none"
           style={{ WebkitAppRegion: "drag" } as CSSProperties}
           data-tauri-drag-region
-          onMouseDown={(e) => {
-            if (e.button === 0 && isTauri()) {
-              const target = e.target as HTMLElement;
-              if (!target.closest("button, input, select, textarea")) {
-                try {
-                  void getCurrentWindow().startDragging();
-                } catch {
-                  // Fallback
-                }
-              }
-            }
-          }}
         >
           <div className="flex items-center gap-2">
             <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-400 to-violet-500 shadow-lg shadow-cyan-500/20">
