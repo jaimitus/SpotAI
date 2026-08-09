@@ -142,7 +142,7 @@ export function SettingsModal({
         }
       }
 
-      saveSettings(draft);
+      void saveSettings(draft);
       await saveApiKeys(keys);
       onSave(draft);
       setSavedFlash(true);

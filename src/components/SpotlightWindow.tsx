@@ -32,6 +32,8 @@ import {
   isTauri,
   listenWindowShown,
   loadSettings,
+  loadSettingsSync,
+  migrateLegacySettings,
   openExternalUrl,
   resolveHost,
   saveSettings,
@@ -45,7 +47,7 @@ import { ResponsePanel } from "./ResponsePanel";
 import { SettingsModal } from "./SettingsModal";
 
 export function SpotlightWindow() {
-  const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
+  const [settings, setSettings] = useState<AppSettings>(() => loadSettingsSync());
   const [provider, setProvider] = useState<ProviderId>(settings.defaultProvider);
   const [model, setModel] = useState(settings.defaultModel);
   const [prompt, setPrompt] = useState("");
@@ -98,6 +100,31 @@ export function SpotlightWindow() {
       );
     });
     setBooting(false);
+  }, []);
+
+  // Hydrate from the Tauri-managed store on mount. Runs once: the
+  // `loadSettingsSync` initialiser is enough for the first paint, and the
+  // async refresh below picks up the latest persisted values plus triggers
+  // the legacy `localStorage` -> Tauri migration when applicable.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await migrateLegacySettings();
+        const fresh = await loadSettings();
+        if (cancelled) return;
+        setSettings(fresh);
+      } catch (cause) {
+        // Non-fatal: the synchronous loader already gave us a valid copy
+        // from the `localStorage` mirror, so the user can still use the
+        // app even if the store is unreachable for some reason.
+        // eslint-disable-next-line no-console
+        console.warn("[spotai] failed to hydrate settings", cause);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -183,7 +210,7 @@ export function SpotlightWindow() {
     setModel(m);
     const next = { ...settings, defaultProvider: p, defaultModel: m };
     setSettings(next);
-    saveSettings(next);
+    void saveSettings(next);
   };
 
   const handleAction = (id: ActionChipId) => {
@@ -499,7 +526,7 @@ export function SpotlightWindow() {
         onClose={() => setSettingsOpen(false)}
         onSave={(s) => {
           setSettings(s);
-          saveSettings(s);
+          void saveSettings(s);
           if (s.globalShortcut) {
             setActiveShortcut(s.globalShortcut);
           }

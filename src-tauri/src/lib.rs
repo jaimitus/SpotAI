@@ -4,6 +4,7 @@ mod ai;
 mod commands;
 mod native_input;
 mod secure_store;
+mod settings_store;
 
 use ai::{ActiveStream, AiHttpClient};
 use tauri::{
@@ -78,6 +79,8 @@ pub fn run() {
             commands::show_window,
             commands::check_ollama_health,
             commands::open_external_url,
+            commands::get_app_settings,
+            commands::set_app_settings,
         ])
         .setup(|app| {
             let shortcut_status = app.state::<commands::ShortcutRegistration>();

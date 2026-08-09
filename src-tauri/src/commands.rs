@@ -6,6 +6,7 @@ use crate::ai::providers::{
     DEFAULT_OLLAMA_HOST,
 };
 use crate::ai::stream::ActiveStream;
+use crate::settings_store::{self, PersistedSettings};
 use crate::{native_input, secure_store};
 use arboard::Clipboard;
 use parking_lot::Mutex;
@@ -636,4 +637,26 @@ pub fn open_external_url(url: String) -> Result<(), String> {
         let _ = url;
         Ok(())
     }
+}
+
+#[tauri::command]
+pub async fn get_app_settings(app: AppHandle) -> Result<PersistedSettings, String> {
+    // Run the file I/O on a blocking thread because we may be called from
+    // the UI thread on startup and a slow disk must not freeze the webview.
+    tauri::async_runtime::spawn_blocking(move || -> Result<PersistedSettings, String> {
+        let stored = settings_store::read_app_settings(&app).map_err(String::from)?;
+        Ok(stored.unwrap_or_default())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn set_app_settings(app: AppHandle, settings: PersistedSettings) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        settings_store::write_app_settings(&app, &settings).map_err(String::from)?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
