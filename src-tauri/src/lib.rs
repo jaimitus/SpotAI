@@ -2,6 +2,7 @@
 
 mod ai;
 mod commands;
+mod history_store;
 mod native_input;
 mod secure_store;
 mod settings_store;
@@ -81,6 +82,9 @@ pub fn run() {
             commands::open_external_url,
             commands::get_app_settings,
             commands::set_app_settings,
+            commands::list_history,
+            commands::add_history_entry,
+            commands::clear_history,
         ])
         .setup(|app| {
             let shortcut_status = app.state::<commands::ShortcutRegistration>();

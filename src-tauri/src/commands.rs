@@ -6,6 +6,7 @@ use crate::ai::providers::{
     DEFAULT_OLLAMA_HOST,
 };
 use crate::ai::stream::ActiveStream;
+use crate::history_store::{self, HistoryEntry, PersistedHistory};
 use crate::settings_store::{self, PersistedSettings};
 use crate::{native_input, secure_store};
 use arboard::Clipboard;
@@ -656,6 +657,36 @@ pub async fn set_app_settings(app: AppHandle, settings: PersistedSettings) -> Re
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         settings_store::write_app_settings(&app, &settings).map_err(String::from)?;
         Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn list_history(app: AppHandle) -> Result<PersistedHistory, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<PersistedHistory, String> {
+        Ok(history_store::read_history(&app)?)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn add_history_entry(
+    app: AppHandle,
+    entry: HistoryEntry,
+) -> Result<HistoryEntry, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<HistoryEntry, String> {
+        Ok(history_store::append_entry(&app, entry)?)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn clear_history(app: AppHandle) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<usize, String> {
+        Ok(history_store::clear(&app)?)
     })
     .await
     .map_err(|error| error.to_string())?
