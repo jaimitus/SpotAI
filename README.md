@@ -92,11 +92,11 @@
 
 Download the latest version from [GitHub Releases](https://github.com/jaimitus/SpotAI/releases/tag/v1.2.0):
 
-- ⚡ **Standalone Executable**: `SpotAI.exe` (Run directly without installing)
-- 📦 **Windows Installer**: `SpotAI-Setup.exe` or `SpotAI-Installer.msi`
-- 🗂️ **Portable Package**: `SpotAI-Portable.zip`
+- 🗂️ **Portable (no install)**: `SpotAI-Portable.zip` — unzip and run `SpotAI.exe` directly, nothing to install (requires Windows 10/11 with WebView2).
+- ⚡ **Installer (NSIS)**: `SpotAI_1.2.0_x64-setup.exe`
+- 📦 **Installer (MSI)**: `SpotAI_1.2.0_x64_en-US.msi`
 
-*(All compiled release packages are stored in `dist_release/`)*
+*(All assets — installers, portable zip, updater signatures and `latest.json` — are attached to the GitHub Release. Note: the portable build does not auto-update; use an installer if you want the built-in updater.)*
 
 ---
 

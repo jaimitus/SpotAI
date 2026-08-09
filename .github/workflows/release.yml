@@ -38,3 +38,14 @@ jobs:
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
+      # Portable package: the standalone exe zipped for run-without-install
+      # users. Attached to the release created by tauri-action above.
+      - name: Create portable zip
+        shell: powershell
+        run: |
+          Copy-Item src-tauri/target/release/spotai.exe SpotAI.exe
+          Compress-Archive -Path SpotAI.exe -DestinationPath SpotAI-Portable.zip -Force
+      - name: Upload portable zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.ref_name }}" SpotAI-Portable.zip --repo jaimitus/SpotAI --clobber
