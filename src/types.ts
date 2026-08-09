@@ -78,6 +78,7 @@ export interface HealthStatus {
 export interface ShortcutStatus {
   registered: boolean;
   error?: string | null;
+  shortcut?: string | null;
 }
 
 export type ActionChipId =

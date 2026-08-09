@@ -3,6 +3,7 @@ import {
   Eye,
   EyeOff,
   Globe,
+  Keyboard,
   Plus,
   RefreshCw,
   Save,
@@ -17,9 +18,12 @@ import {
   checkOllamaHealth,
   deleteApiKey,
   getApiKeyStatus,
+  getShortcutStatus,
+  isTauri,
   openExternalUrl,
   saveApiKeys,
   saveSettings,
+  setGlobalShortcut,
 } from "../lib/tauri";
 import type {
   ApiKeyStatus,
@@ -28,8 +32,12 @@ import type {
   CustomAction,
   HealthStatus,
   Language,
+  ShortcutStatus,
 } from "../types";
 import { cn } from "../utils/cn";
+import { ShortcutRecorder } from "./ShortcutRecorder";
+
+const DEFAULT_SHORTCUT = "Alt+Space";
 
 interface SettingsModalProps {
   open: boolean;
@@ -53,6 +61,7 @@ export function SettingsModal({
   const [savedFlash, setSavedFlash] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"general" | "providers" | "customButtons">("general");
+  const [shortcutStatus, setShortcutStatus] = useState<ShortcutStatus | null>(null);
 
   // New Custom Button Form state
   const [newLabel, setNewLabel] = useState("");
@@ -64,6 +73,7 @@ export function SettingsModal({
       ...settings,
       language: settings.language || "en",
       customActions: settings.customActions || [],
+      globalShortcut: settings.globalShortcut || DEFAULT_SHORTCUT,
     });
     setKeys({});
     setSaveError(null);
@@ -72,6 +82,16 @@ export function SettingsModal({
         setKeyStatus(await getApiKeyStatus());
         const h = await checkOllamaHealth(settings.ollamaHost);
         setHealth(h);
+        if (isTauri()) {
+          const s = await getShortcutStatus();
+          setShortcutStatus(s);
+          // Reconcile the draft with the backend truth so the UI never shows a
+          // stale value (e.g. if the user changed it in a previous session
+          // and we did not persist the change yet).
+          if (s.shortcut) {
+            setDraft((d) => ({ ...d, globalShortcut: s.shortcut! }));
+          }
+        }
       } catch (cause) {
         setSaveError(cause instanceof Error ? cause.message : String(cause));
       }
@@ -99,6 +119,29 @@ export function SettingsModal({
     setSaving(true);
     setSaveError(null);
     try {
+      // Re-register the global shortcut before persisting the rest, so a bad
+      // combination aborts the save with a clear message and the user does
+      // not end up with a saved setting that the OS will not honour.
+      const nextShortcut = (draft.globalShortcut || DEFAULT_SHORTCUT).trim();
+      if (isTauri() && nextShortcut && nextShortcut !== (shortcutStatus?.shortcut ?? "")) {
+        try {
+          await setGlobalShortcut(nextShortcut);
+          setShortcutStatus({
+            registered: true,
+            error: null,
+            shortcut: nextShortcut,
+          });
+        } catch (cause) {
+          setSaveError(
+            `Could not apply shortcut "${nextShortcut}": ${
+              cause instanceof Error ? cause.message : String(cause)
+            }`,
+          );
+          setSaving(false);
+          return;
+        }
+      }
+
       saveSettings(draft);
       await saveApiKeys(keys);
       onSave(draft);
@@ -270,15 +313,28 @@ export function SettingsModal({
               </section>
 
               {/* Shortcut info */}
-              <section className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3">
-                <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  Global hotkey:{" "}
-                  <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-cyan-300">
-                    Alt + Space
-                  </kbd>
-                  <span className="text-zinc-600"> | </span>
-                  Esc hides window | Runs in system tray
-                </p>
+              <section className="space-y-2 pt-2">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  <Keyboard className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>{t(currentLang, "shortcutRecorderLabel")}</span>
+                </div>
+                <Field label={t(currentLang, "shortcutRecorderHelp")}>
+                  <ShortcutRecorder
+                    value={draft.globalShortcut || DEFAULT_SHORTCUT}
+                    defaultValue={DEFAULT_SHORTCUT}
+                    onChange={(v) => update("globalShortcut", v)}
+                    disabled={!isTauri()}
+                  />
+                  {shortcutStatus?.error && (
+                    <p className="mt-1.5 text-[10px] text-rose-300">
+                      {shortcutStatus.error}
+                    </p>
+                  )}
+                  <p className="mt-1 text-[10px] text-zinc-500 leading-normal">
+                    {t(currentLang, "shortcutRecorderHint")}
+                    {!isTauri() && ` ${t(currentLang, "shortcutRecorderRequiresRuntime")}`}
+                  </p>
+                </Field>
               </section>
             </>
           )}

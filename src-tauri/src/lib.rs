@@ -12,7 +12,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WindowEvent,
 };
-use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
+use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -31,10 +31,26 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
-                    // Capture after release so the physical Alt key cannot interfere with Ctrl+C.
-                    if event.state() == ShortcutState::Released
-                        && shortcut.matches(Modifiers::ALT, Code::Space)
-                    {
+                    // Only fire on key release to avoid stomping Ctrl+C / Alt+Tab
+                    // while the user is still holding the modifier down.
+                    if event.state() != ShortcutState::Released {
+                        return;
+                    }
+                    // Compare against the currently registered shortcut, so
+                    // user changes from the settings modal are honoured at
+                    // runtime.
+                    let registered = app
+                        .state::<commands::ShortcutRegistration>()
+                        .current();
+                    let matches = registered
+                        .as_ref()
+                        .map(|target| shortcut_matches(target, shortcut))
+                        .unwrap_or_else(|| {
+                            // Fallback to the legacy default if for some reason
+                            // the registration state has not been populated.
+                            shortcut.matches(Modifiers::ALT, Code::Space)
+                        });
+                    if matches {
                         commands::toggle_from_shortcut(app);
                     }
                 })
@@ -46,6 +62,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_clipboard_text,
             commands::get_shortcut_status,
+            commands::set_global_shortcut,
             commands::set_clipboard_text,
             commands::auto_insert_text,
             commands::fetch_local_models,
@@ -79,7 +96,14 @@ pub fn run() {
                 .icon(icon)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .tooltip("SpotAI | Alt+Space")
+                .tooltip(&format!(
+                    "SpotAI | {}",
+                    commands::shortcut_to_string(
+                        &shortcut_status
+                            .current()
+                            .unwrap_or_else(|| Shortcut::new(Some(Modifiers::ALT), Code::Space))
+                    )
+                ))
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => commands::show_window_internal(app, false),
                     "hide" => {
@@ -113,7 +137,14 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            tracing::info!("SpotAI is ready. Press Alt+Space to toggle it.");
+            tracing::info!(
+                "SpotAI is ready. Press {} to toggle it.",
+                commands::shortcut_to_string(
+                    &shortcut_status
+                        .current()
+                        .unwrap_or_else(|| Shortcut::new(Some(Modifiers::ALT), Code::Space))
+                )
+            );
             Ok(())
         })
         .on_window_event(|window, event| match event {
@@ -125,4 +156,12 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("SpotAI terminated unexpectedly");
+}
+
+/// Compares two shortcuts structurally. `Shortcut` derives `PartialEq` so a
+/// plain `==` would work, but we keep an explicit helper so the intent is
+/// obvious at the call site and the comparison can be expanded later if the
+/// plugin gains richer equality semantics.
+fn shortcut_matches(a: &Shortcut, b: &Shortcut) -> bool {
+    a.key == b.key && a.mods == b.mods
 }

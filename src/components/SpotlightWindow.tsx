@@ -35,6 +35,7 @@ import {
   openExternalUrl,
   resolveHost,
   saveSettings,
+  setGlobalShortcut,
 } from "../lib/tauri";
 import type { ActionChipId, AppSettings, CustomAction, ModelInfo, ProviderId } from "../types";
 import { cn } from "../utils/cn";
@@ -54,6 +55,9 @@ export function SpotlightWindow() {
   const [ollamaOnline, setOllamaOnline] = useState(false);
   const [booting, setBooting] = useState(true);
   const [shortcutError, setShortcutError] = useState<string | null>(null);
+  const [activeShortcut, setActiveShortcut] = useState<string>(
+    settings.globalShortcut || "Alt+Space",
+  );
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { contextText, clearContext, refresh, truncated } = useClipboardContext();
@@ -100,6 +104,27 @@ export function SpotlightWindow() {
     void reloadModels(settings);
     void getShortcutStatus().then((status) => {
       setShortcutError(status.registered ? null : status.error || t(currentLang, "shortcutUnavailable"));
+      const backendShortcut = status.shortcut;
+      if (backendShortcut) {
+        setActiveShortcut(backendShortcut);
+      }
+      // If the user has a different shortcut persisted, push it to the
+      // backend so the global hotkey matches their preference. We compare
+      // against the backend-reported value (falling back to the legacy
+      // default) to avoid a useless round-trip on every boot.
+      const persisted = settings.globalShortcut;
+      if (persisted && persisted !== (backendShortcut ?? "Alt+Space") && isTauri()) {
+        setGlobalShortcut(persisted)
+          .then((applied) => {
+            setActiveShortcut(applied);
+            setShortcutError(null);
+          })
+          .catch((cause) => {
+            setShortcutError(
+              cause instanceof Error ? cause.message : String(cause),
+            );
+          });
+      }
     });
   }, [settings, reloadModels, currentLang]);
 
@@ -279,7 +304,7 @@ export function SpotlightWindow() {
                   ? t(currentLang, "starting")
                   : shortcutError
                     ? t(currentLang, "shortcutUnavailable")
-                    : t(currentLang, "shortcutLabel")}
+                    : `${activeShortcut} | ${t(currentLang, "shortcutLabel")}`}
               </div>
             </div>
           </div>
@@ -475,6 +500,9 @@ export function SpotlightWindow() {
         onSave={(s) => {
           setSettings(s);
           saveSettings(s);
+          if (s.globalShortcut) {
+            setActiveShortcut(s.globalShortcut);
+          }
         }}
       />
     </div>

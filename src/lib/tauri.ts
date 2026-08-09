@@ -77,6 +77,19 @@ export async function getShortcutStatus(): Promise<ShortcutStatus> {
   return invoke<ShortcutStatus>("get_shortcut_status");
 }
 
+/**
+ * Updates the global shortcut at runtime. The new combination must be a
+ * `+`-separated list such as "Alt+Space", "Ctrl+Shift+K" or "Super+KeyP".
+ * Throws if the string is malformed or if the OS refuses the registration
+ * (e.g. because the combination is already taken by another app).
+ */
+export async function setGlobalShortcut(shortcut: string): Promise<string> {
+  if (!isTauri()) {
+    throw new Error("The Tauri desktop runtime is not active");
+  }
+  return invoke<string>("set_global_shortcut", { shortcut });
+}
+
 export async function fetchLocalModels(host?: string): Promise<ModelInfo[]> {
   try {
     return await invoke<ModelInfo[]>("fetch_local_models", { host: host ?? null });

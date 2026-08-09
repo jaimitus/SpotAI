@@ -42,6 +42,12 @@ export const translations = {
     improve: "Improve",
     comment: "Add Comments",
 
+    // Shortcut recorder
+    shortcutRecorderLabel: "Global Hotkey",
+    shortcutRecorderHelp: "Press the key combination you want to summon SpotAI with.",
+    shortcutRecorderHint: "Esc hides the window. SpotAI also runs in the system tray.",
+    shortcutRecorderRequiresRuntime: "Shortcut editing requires the desktop runtime.",
+
     // Settings Modal
     settingsHeader: "SpotAI Settings",
     settingsSubtitle: "Configure local/cloud AI models, custom prompt buttons, and interface language",
@@ -113,6 +119,12 @@ export const translations = {
     improve: "Mejorar",
     comment: "Añadir comentarios",
 
+    // Shortcut recorder
+    shortcutRecorderLabel: "Atajo global",
+    shortcutRecorderHelp: "Pulsa la combinación de teclas con la que quieres invocar SpotAI.",
+    shortcutRecorderHint: "Esc oculta la ventana. SpotAI también vive en la bandeja del sistema.",
+    shortcutRecorderRequiresRuntime: "Editar el atajo requiere el entorno de escritorio.",
+
     // Settings Modal
     settingsHeader: "Ajustes de SpotAI",
     settingsSubtitle: "Configura modelos de IA locales/nube, botones personalizados e idioma",
@@ -183,6 +195,12 @@ export const translations = {
     translate: "Übersetzen",
     improve: "Verbessern",
     comment: "Kommentieren",
+
+    // Shortcut recorder
+    shortcutRecorderLabel: "Globaler Hotkey",
+    shortcutRecorderHelp: "Drücken Sie die Tastenkombination, mit der Sie SpotAI aufrufen möchten.",
+    shortcutRecorderHint: "Esc blendet das Fenster aus. SpotAI läuft auch im System-Tray.",
+    shortcutRecorderRequiresRuntime: "Das Ändern des Hotkeys erfordert die Desktop-Laufzeit.",
 
     // Settings Modal
     settingsHeader: "SpotAI Einstellungen",
