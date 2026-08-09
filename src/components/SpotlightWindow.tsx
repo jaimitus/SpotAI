@@ -38,7 +38,6 @@ import {
   openExternalUrl,
   resolveHost,
   saveSettings,
-  setGlobalShortcut,
 } from "../lib/tauri";
 import type {
   ActionChipId,
@@ -148,23 +147,14 @@ export function SpotlightWindow() {
       if (backendShortcut) {
         setActiveShortcut(backendShortcut);
       }
-      // If the user has a different shortcut persisted, push it to the
-      // backend so the global hotkey matches their preference. We compare
-      // against the backend-reported value (falling back to the legacy
-      // default) to avoid a useless round-trip on every boot.
-      const persisted = settings.globalShortcut;
-      if (persisted && persisted !== (backendShortcut ?? "Alt+Space") && isTauri()) {
-        setGlobalShortcut(persisted)
-          .then((applied) => {
-            setActiveShortcut(applied);
-            setShortcutError(null);
-          })
-          .catch((cause) => {
-            setShortcutError(
-              cause instanceof Error ? cause.message : String(cause),
-            );
-          });
-      }
+      // We intentionally do NOT call setGlobalShortcut() here. The launcher
+      // used to "reconcile" the persisted shortcut with the backend on
+      // every settings change, but doing so from a useEffect that re-runs
+      // on each render caused cascading IPC calls (sometimes inside
+      // StrictMode double-invoke) that occasionally failed and left the
+      // modal unable to re-open. The backend now keeps the binding it was
+      // last asked to install, and the Settings modal is the single
+      // source of truth for changes via its Save button.
     });
   }, [settings, reloadModels, currentLang]);
 

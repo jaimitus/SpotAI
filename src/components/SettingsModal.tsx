@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { t } from "../lib/i18n";
 import {
   checkOllamaHealth,
@@ -64,6 +65,7 @@ export function SettingsModal({
   const [activeTab, setActiveTab] = useState<"general" | "providers" | "customButtons">("general");
   const [shortcutStatus, setShortcutStatus] = useState<ShortcutStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // New Custom Button Form state
   const [newLabel, setNewLabel] = useState("");
@@ -80,42 +82,62 @@ export function SettingsModal({
     setKeys({});
     setSaveError(null);
     setLoading(true);
+    setLoadError(null);
 
-    // Hydrate the modal in parallel. We use allSettled so a slow / failed
-    // network call (e.g. Ollama down) does not block the rest of the UI
-    // and the user is never stuck waiting for the modal to become
-    // interactive.
+    // Schedule the async hydration on the next tick so the modal can
+    // paint first. This guarantees the user sees the modal instantly
+    // even if the backend is slow to answer (or in dev mode where the
+    // IPC bridge has not finished initialising), and prevents a long
+    // synchronous-looking pause right after they click the Settings
+    // button.
     let cancelled = false;
-    void (async () => {
-      const [keyResult, healthResult, shortcutResult] = await Promise.allSettled([
-        isTauri() ? getApiKeyStatus() : Promise.resolve({} as ApiKeyStatus),
-        checkOllamaHealth(settings.ollamaHost),
-        isTauri() ? getShortcutStatus() : Promise.resolve(null),
-      ]);
-      if (cancelled) return;
-      if (keyResult.status === "fulfilled") {
-        setKeyStatus(keyResult.value);
-      } else {
-        // eslint-disable-next-line no-console
-        console.warn("[spotai] getApiKeyStatus failed", keyResult.reason);
-      }
-      if (healthResult.status === "fulfilled") {
-        setHealth(healthResult.value);
-      } else {
-        setHealth({ ollama: false, ollamaVersion: null });
-      }
-      if (shortcutResult.status === "fulfilled" && shortcutResult.value) {
-        const s = shortcutResult.value as ShortcutStatus;
-        setShortcutStatus(s);
-        if (s.shortcut) {
-          setDraft((d) => ({ ...d, globalShortcut: s.shortcut! }));
+    const handle = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const [keyResult, healthResult, shortcutResult] =
+            await Promise.allSettled([
+              isTauri() ? getApiKeyStatus() : Promise.resolve({} as ApiKeyStatus),
+              checkOllamaHealth(settings.ollamaHost),
+              isTauri() ? getShortcutStatus() : Promise.resolve(null),
+            ]);
+          if (cancelled) return;
+          if (keyResult.status === "fulfilled") {
+            setKeyStatus(keyResult.value);
+          }
+          if (healthResult.status === "fulfilled") {
+            setHealth(healthResult.value);
+          } else {
+            setHealth({ ollama: false, ollamaVersion: null });
+          }
+          if (
+            shortcutResult.status === "fulfilled" &&
+            shortcutResult.value
+          ) {
+            const s = shortcutResult.value as ShortcutStatus;
+            setShortcutStatus(s);
+            if (s.shortcut) {
+              setDraft((d) => ({ ...d, globalShortcut: s.shortcut! }));
+            }
+          }
+        } catch (cause) {
+          // The catch is defensive: Promise.allSettled should already
+          // swallow rejections, but a synchronous throw inside the IIFE
+          // would otherwise kill the React tree.
+          // eslint-disable-next-line no-console
+          console.warn("[spotai] settings hydration failed", cause);
+          if (cancelled) return;
+          setLoadError(
+            cause instanceof Error ? cause.message : String(cause),
+          );
+        } finally {
+          if (!cancelled) setLoading(false);
         }
-      }
-      setLoading(false);
-    })();
+      })();
+    }, 0);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(handle);
     };
   }, [open, settings]);
 
@@ -216,17 +238,42 @@ export function SettingsModal({
     }));
   };
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+  // Render the modal into a portal so its DOM lives outside the
+  // launcher's window tree. This avoids two long-standing issues with
+  // the previous implementation:
+  //   1. The backdrop was a sibling of the launcher UI, so any pointer
+  //      event in the launcher's bounding box reached the backdrop and
+  //      triggered onClose, making the modal look like it "closed
+  //      itself" right after opening.
+  //   2. z-index / WebKitAppRegion conflicts with the drag bar caused
+  //      the native drag handler to swallow clicks on the header
+  //      buttons.
+  // Using a portal makes the modal a peer of <body>, so the OS treats
+  // it as a normal floating dialog and clicks land where the user
+  // expects them to. We also stop mouse-down events at the portal
+  // root so the launcher's drag region cannot initiate a window drag
+  // while the user is interacting with the modal.
+  const body = typeof document !== "undefined" ? document.body : null;
+  if (!body) return null;
+
+  const modal = (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
       <div
         className="absolute inset-0 bg-black/65 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
       />
       <div
         className={cn(
           "relative z-10 flex max-h-[min(660px,92vh)] w-full max-w-lg flex-col overflow-hidden",
           "rounded-2xl border border-white/10 bg-[#0c0e14] shadow-2xl shadow-black/80",
         )}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5">
@@ -617,9 +664,16 @@ export function SettingsModal({
             </button>
           </div>
         </div>
+        {loadError && (
+          <p className="border-t border-rose-500/30 bg-rose-500/10 px-5 py-2 text-[10px] text-rose-200">
+            {loadError}
+          </p>
+        )}
       </div>
     </div>
   );
+
+  return createPortal(modal, body);
 }
 
 function Field({
