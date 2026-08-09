@@ -2,6 +2,7 @@ import {
   ArrowUp,
   Clipboard,
   ExternalLink,
+  History,
   Loader2,
   Settings2,
   Sparkles,
@@ -18,6 +19,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useClipboardContext } from "../hooks/useClipboardContext";
+import { useHistory } from "../hooks/useHistory";
 import { useLLMStream } from "../hooks/useLLMStream";
 import { t } from "../lib/i18n";
 import { buildActionPrompt } from "../lib/prompts";
@@ -39,9 +41,17 @@ import {
   saveSettings,
   setGlobalShortcut,
 } from "../lib/tauri";
-import type { ActionChipId, AppSettings, CustomAction, ModelInfo, ProviderId } from "../types";
+import type {
+  ActionChipId,
+  AppSettings,
+  CustomAction,
+  HistoryEntry,
+  ModelInfo,
+  ProviderId,
+} from "../types";
 import { cn } from "../utils/cn";
 import { ActionChips } from "./ActionChips";
+import { HistoryPanel } from "./HistoryPanel";
 import { ProviderBadge } from "./ProviderBadge";
 import { ResponsePanel } from "./ResponsePanel";
 import { SettingsModal } from "./SettingsModal";
@@ -60,10 +70,14 @@ export function SpotlightWindow() {
   const [activeShortcut, setActiveShortcut] = useState<string>(
     settings.globalShortcut || "Alt+Space",
   );
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [previewedEntry, setPreviewedEntry] = useState<HistoryEntry | null>(null);
+  const [restoreFlash, setRestoreFlash] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { contextText, clearContext, refresh, truncated } = useClipboardContext();
   const { response, status, error, start, stop, reset } = useLLMStream();
+  const history = useHistory();
 
   const currentLang = settings.language || "en";
   const isStreaming = status === "streaming";
@@ -167,6 +181,36 @@ export function SpotlightWindow() {
     }
   }, [hasResponse]);
 
+  // Persist a history entry as soon as a stream completes successfully.
+  // We do this in a separate effect so the act of submitting the prompt is
+  // not blocked on the disk write, and so we capture the final response
+  // text rather than an intermediate streaming snapshot.
+  const lastPersistedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (status !== "done" || !response || error) return;
+    if (!prompt.trim() && !contextText.trim()) return;
+    if (previewedEntry && previewedEntry.responsePreview === response) return;
+    const key = `${prompt}|${response.slice(0, 64)}`;
+    if (lastPersistedRef.current === key) return;
+    lastPersistedRef.current = key;
+    void history.add({
+      provider,
+      model,
+      prompt: prompt.trim() || "(empty prompt)",
+      responsePreview: response,
+      contextPreview: contextText ? truncateContext(contextText) : null,
+    });
+  }, [status, response, error, prompt, contextText, provider, model, history, previewedEntry]);
+
+  useEffect(() => {
+    // Closing the history preview should fall back to the live response if
+    // the user has one in progress; clearing the previewed entry restores
+    // the default render path.
+    if (!historyOpen && previewedEntry) {
+      setPreviewedEntry(null);
+    }
+  }, [historyOpen, previewedEntry]);
+
   useEffect(() => {
     const focus = () => {
       requestAnimationFrame(() => {
@@ -183,6 +227,10 @@ export function SpotlightWindow() {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape" && !settingsOpen) {
         e.preventDefault();
+        if (historyOpen) {
+          setHistoryOpen(false);
+          return;
+        }
         if (isStreaming) {
           void stop();
         } else if (response) {
@@ -197,13 +245,20 @@ export function SpotlightWindow() {
         e.preventDefault();
         setSettingsOpen(true);
       }
+      // Alt+H toggles the history panel. We only match a bare `h`/`H` (no
+      // Ctrl/Meta) so we do not swallow copy-paste or other browser
+      // shortcuts.
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "h" || e.key === "H")) {
+        e.preventDefault();
+        setHistoryOpen((current) => !current);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
       unlisten?.();
     };
-  }, [settingsOpen, isStreaming, response, stop, reset]);
+  }, [settingsOpen, historyOpen, isStreaming, response, stop, reset]);
 
   const handleProviderChange = (p: ProviderId, m: string) => {
     setProvider(p);
@@ -278,6 +333,38 @@ export function SpotlightWindow() {
     }
   };
 
+  const handleRestoreFromHistory = useCallback(
+    (entry: HistoryEntry) => {
+      setPrompt(entry.prompt);
+      setActiveAction(null);
+      setHistoryOpen(false);
+      setPreviewedEntry(null);
+      setRestoreFlash(true);
+      setTimeout(() => setRestoreFlash(false), 800);
+      // Restore the provider/model the user used historically so the next
+      // re-send does not silently switch engines.
+      if (models.some((m) => m.provider === entry.provider && m.id === entry.model)) {
+        setProvider(entry.provider as ProviderId);
+        setModel(entry.model);
+      }
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        const el = inputRef.current;
+        if (el) {
+          const end = el.value.length;
+          el.selectionStart = end;
+          el.selectionEnd = end;
+        }
+      });
+    },
+    [models],
+  );
+
+  const handleShowHistoryResponse = useCallback((entry: HistoryEntry) => {
+    setPreviewedEntry(entry);
+    setHistoryOpen(false);
+  }, []);
+
   const contextPreview = contextText
     ? contextText.length > 160
       ? `${contextText.slice(0, 160)}...`
@@ -347,6 +434,19 @@ export function SpotlightWindow() {
               ollamaOnline={ollamaOnline}
               onChange={handleProviderChange}
             />
+            <button
+              type="button"
+              onClick={() => setHistoryOpen((current) => !current)}
+              title={t(currentLang, "historyToggleHint")}
+              className={cn(
+                "rounded-lg p-1.5 transition",
+                historyOpen
+                  ? "bg-cyan-400/15 text-cyan-300"
+                  : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300",
+              )}
+            >
+              <History className="h-4 w-4" />
+            </button>
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
@@ -463,19 +563,41 @@ export function SpotlightWindow() {
         </div>
 
         {/* Response */}
-        {hasResponse && (
-          <div className="flex min-h-0 flex-1 flex-col px-3 pb-3">
-            <ResponsePanel
-              response={response}
-              status={status}
-              error={error}
-              lang={currentLang}
-              onStop={() => void stop()}
-              onClear={() => {
-                reset();
-                setActiveAction(null);
-              }}
-            />
+        {(hasResponse || historyOpen) && (
+          <div className="relative flex min-h-0 flex-1 flex-col px-3 pb-3">
+            {hasResponse && (
+              <ResponsePanel
+                response={previewedEntry?.responsePreview ?? response}
+                status={previewedEntry ? "done" : status}
+                error={error}
+                lang={currentLang}
+                onStop={() => void stop()}
+                onClear={() => {
+                  reset();
+                  setActiveAction(null);
+                  setPreviewedEntry(null);
+                }}
+              />
+            )}
+            {historyOpen && (
+              <HistoryPanel
+                open={historyOpen}
+                entries={history.entries}
+                busy={!history.ready}
+                lang={currentLang}
+                onClose={() => setHistoryOpen(false)}
+                onRestore={handleRestoreFromHistory}
+                onShowResponse={handleShowHistoryResponse}
+                onClear={() => void history.clear()}
+              />
+            )}
+            {restoreFlash && (
+              <div className="pointer-events-none absolute inset-x-3 bottom-3 flex justify-center">
+                <span className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1 text-[10px] text-cyan-200">
+                  {t(currentLang, "historyRestoredToast")}
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -492,6 +614,11 @@ export function SpotlightWindow() {
                 Shift+Enter
               </kbd>{" "}
               {t(currentLang, "footerNewline")}
+              <span className="mx-1.5 text-zinc-700">|</span>
+              <kbd className="rounded border border-white/10 bg-white/[0.03] px-1 py-0.5 font-mono">
+                Alt+H
+              </kbd>{" "}
+              {t(currentLang, "historyToggle").toLowerCase()}
               <span className="mx-1.5 text-zinc-700">|</span>
               <kbd className="rounded border border-white/10 bg-white/[0.03] px-1 py-0.5 font-mono">
                 esc
@@ -534,4 +661,8 @@ export function SpotlightWindow() {
       />
     </div>
   );
+}
+
+function truncateContext(text: string): string {
+  return text.length > 160 ? `${text.slice(0, 160)}…` : text;
 }

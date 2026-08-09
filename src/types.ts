@@ -98,3 +98,13 @@ export interface ActionChip {
 }
 
 export type StreamStatus = "idle" | "streaming" | "done" | "error";
+
+export interface HistoryEntry {
+  id: string;
+  timestamp: number;
+  provider: string;
+  model: string;
+  prompt: string;
+  responsePreview: string;
+  contextPreview: string | null;
+}

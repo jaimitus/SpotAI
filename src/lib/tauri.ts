@@ -3,6 +3,7 @@ import type {
   ApiKeys,
   AppSettings,
   HealthStatus,
+  HistoryEntry,
   ModelInfo,
   PromptRequest,
   ShortcutStatus,
@@ -377,4 +378,24 @@ export async function openExternalUrl(url: string): Promise<void> {
     }
   }
   window.open(url, "_blank", "noreferrer");
+}
+
+// ---------------------------------------------------------------------------
+// Prompt history
+// ---------------------------------------------------------------------------
+
+export async function listHistory(): Promise<{ entries: HistoryEntry[] }> {
+  if (!isTauri()) return { entries: [] };
+  return invoke<{ entries: HistoryEntry[] }>("list_history");
+}
+
+export async function addHistoryEntry(
+  entry: Omit<HistoryEntry, "id" | "timestamp"> & { id: string; timestamp: number },
+): Promise<HistoryEntry> {
+  return invoke<HistoryEntry>("add_history_entry", { entry });
+}
+
+export async function clearHistory(): Promise<number> {
+  if (!isTauri()) return 0;
+  return invoke<number>("clear_history");
 }

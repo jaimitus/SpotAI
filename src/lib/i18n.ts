@@ -48,6 +48,23 @@ export const translations = {
     shortcutRecorderHint: "Esc hides the window. SpotAI also runs in the system tray.",
     shortcutRecorderRequiresRuntime: "Shortcut editing requires the desktop runtime.",
 
+    // History panel
+    historyPanelTitle: "Prompt history",
+    historyToggle: "History",
+    historyToggleHint: "Open the prompt history (Alt+H)",
+    historyFilterPlaceholder: "Filter prompts, responses or models…",
+    historyEmpty: "No prompts sent yet. Your recent activity will show up here.",
+    historyNoMatches: "Nothing matches your filter.",
+    historyLoading: "Loading history…",
+    historyClearLabel: "Clear",
+    historyClearTitle: "Delete every entry from the history",
+    historyClearConfirm: "Delete the entire prompt history? This cannot be undone.",
+    historyNavHint: "navigate",
+    historyRestoreHint: "restore",
+    historyShowResponseHint: "preview",
+    historyCloseHint: "close",
+    historyRestoredToast: "Prompt restored from history",
+
     // Settings Modal
     settingsHeader: "SpotAI Settings",
     settingsSubtitle: "Configure local/cloud AI models, custom prompt buttons, and interface language",
@@ -125,6 +142,23 @@ export const translations = {
     shortcutRecorderHint: "Esc oculta la ventana. SpotAI también vive en la bandeja del sistema.",
     shortcutRecorderRequiresRuntime: "Editar el atajo requiere el entorno de escritorio.",
 
+    // History panel
+    historyPanelTitle: "Historial de prompts",
+    historyToggle: "Historial",
+    historyToggleHint: "Abrir el historial de prompts (Alt+H)",
+    historyFilterPlaceholder: "Filtrar prompts, respuestas o modelos…",
+    historyEmpty: "Aún no has enviado prompts. Tu actividad reciente aparecerá aquí.",
+    historyNoMatches: "Nada coincide con tu filtro.",
+    historyLoading: "Cargando historial…",
+    historyClearLabel: "Borrar",
+    historyClearTitle: "Eliminar todas las entradas del historial",
+    historyClearConfirm: "¿Borrar todo el historial de prompts? Esta acción no se puede deshacer.",
+    historyNavHint: "navegar",
+    historyRestoreHint: "restaurar",
+    historyShowResponseHint: "vista previa",
+    historyCloseHint: "cerrar",
+    historyRestoredToast: "Prompt restaurado del historial",
+
     // Settings Modal
     settingsHeader: "Ajustes de SpotAI",
     settingsSubtitle: "Configura modelos de IA locales/nube, botones personalizados e idioma",
@@ -201,6 +235,23 @@ export const translations = {
     shortcutRecorderHelp: "Drücken Sie die Tastenkombination, mit der Sie SpotAI aufrufen möchten.",
     shortcutRecorderHint: "Esc blendet das Fenster aus. SpotAI läuft auch im System-Tray.",
     shortcutRecorderRequiresRuntime: "Das Ändern des Hotkeys erfordert die Desktop-Laufzeit.",
+
+    // History panel
+    historyPanelTitle: "Prompt-Verlauf",
+    historyToggle: "Verlauf",
+    historyToggleHint: "Prompt-Verlauf öffnen (Alt+H)",
+    historyFilterPlaceholder: "Prompts, Antworten oder Modelle filtern…",
+    historyEmpty: "Noch keine Prompts gesendet. Ihre letzten Aktivitäten erscheinen hier.",
+    historyNoMatches: "Keine Treffer für Ihren Filter.",
+    historyLoading: "Verlauf wird geladen…",
+    historyClearLabel: "Leeren",
+    historyClearTitle: "Alle Einträge aus dem Verlauf löschen",
+    historyClearConfirm: "Den gesamten Prompt-Verlauf löschen? Dies kann nicht rückgängig gemacht werden.",
+    historyNavHint: "navigieren",
+    historyRestoreHint: "wiederherstellen",
+    historyShowResponseHint: "Vorschau",
+    historyCloseHint: "schließen",
+    historyRestoredToast: "Prompt aus dem Verlauf wiederhergestellt",
 
     // Settings Modal
     settingsHeader: "SpotAI Einstellungen",
