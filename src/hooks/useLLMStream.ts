@@ -12,8 +12,9 @@ export interface UseLLMStreamResult {
   response: string;
   status: StreamStatus;
   error: string | null;
-  start: (request: StreamRequest) => Promise<void>;
+  start: (request: StreamRequest) => Promise<string>;
   stop: () => Promise<void>;
+  restore: (value: string) => void;
   reset: () => void;
 }
 
@@ -77,11 +78,13 @@ export function useLLMStream(): UseLLMStreamResult {
         setStatus("done");
         statusRef.current = "done";
       }
+      return bufferRef.current;
     } catch (cause) {
-      if (activeRequestRef.current !== requestId) return;
+      if (activeRequestRef.current !== requestId) return "";
       setError(cause instanceof Error ? cause.message : String(cause));
       setStatus("error");
       statusRef.current = "error";
+      return "";
     }
   }, []);
 
@@ -93,6 +96,16 @@ export function useLLMStream(): UseLLMStreamResult {
     }
   }, []);
 
+  const restore = useCallback((value: string) => {
+    activeRequestRef.current = null;
+    bufferRef.current = value;
+    setResponse(value);
+    setError(null);
+    const restoredStatus: StreamStatus = value ? "done" : "idle";
+    setStatus(restoredStatus);
+    statusRef.current = restoredStatus;
+  }, []);
+
   const reset = useCallback(() => {
     activeRequestRef.current = null;
     bufferRef.current = "";
@@ -102,5 +115,5 @@ export function useLLMStream(): UseLLMStreamResult {
     statusRef.current = "idle";
   }, []);
 
-  return { response, status, error, start, stop, reset };
+  return { response, status, error, start, stop, restore, reset };
 }

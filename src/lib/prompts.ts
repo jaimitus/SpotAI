@@ -108,7 +108,6 @@ export function buildActionPrompt(
 
 export const DEFAULT_SETTINGS_KEY = "spotai.settings.v1";
 export const SPOTAI_REPO_URL = "https://github.com/jaimitus/SpotAI";
-export const SPOTAI_VERSION = "1.1.0";
 
 export const BUILTIN_CLOUD_MODELS = [
   { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", provider: "anthropic" },

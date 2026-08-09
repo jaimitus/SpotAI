@@ -12,7 +12,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WindowEvent,
 };
-use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
+use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,14 +28,25 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             commands::show_window_internal(app, false);
         }))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
                     // Capture after release so the physical Alt key cannot interfere with Ctrl+C.
-                    if event.state() == ShortcutState::Released
-                        && shortcut.matches(Modifiers::ALT, Code::Space)
-                    {
-                        commands::toggle_from_shortcut(app);
+                    if event.state() == ShortcutState::Released {
+                        let active = app
+                            .state::<commands::ShortcutRegistration>()
+                            .active
+                            .lock()
+                            .clone();
+                        if active.is_some_and(|active| active == *shortcut) {
+                            commands::toggle_from_shortcut(app);
+                        }
                     }
                 })
                 .build(),
@@ -45,17 +56,21 @@ pub fn run() {
         .manage(AiHttpClient::new().expect("failed to create the shared HTTP client"))
         .invoke_handler(tauri::generate_handler![
             commands::get_clipboard_text,
-            commands::get_shortcut_status,
             commands::set_clipboard_text,
             commands::auto_insert_text,
             commands::fetch_local_models,
             commands::fetch_lmstudio_models,
+            commands::fetch_openai_compatible_models,
             commands::fetch_cloud_models,
             commands::send_prompt_stream,
+            commands::register_shortcut,
             commands::cancel_stream,
             commands::save_api_keys,
             commands::get_api_key_status,
             commands::delete_api_key,
+            commands::save_custom_api_key,
+            commands::delete_custom_api_key,
+            commands::get_custom_api_key_status,
             commands::toggle_window,
             commands::hide_window,
             commands::show_window,
@@ -64,7 +79,10 @@ pub fn run() {
         ])
         .setup(|app| {
             let shortcut_status = app.state::<commands::ShortcutRegistration>();
-            if let Err(error) = commands::register_global_shortcut(app.handle(), &shortcut_status) {
+            let default_shortcut = Shortcut::new(Some(Modifiers::ALT), Code::Space);
+            if let Err(error) =
+                commands::register_global_shortcut(app.handle(), &shortcut_status, default_shortcut)
+            {
                 tracing::error!(%error);
             }
 

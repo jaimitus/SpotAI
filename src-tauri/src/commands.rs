@@ -1,9 +1,10 @@
 //! Tauri IPC commands and global shortcut lifecycle for SpotAI.
 
 use crate::ai::providers::{
-    default_cloud_models, fetch_lmstudio_models as query_lmstudio_models, fetch_ollama_models,
-    stream_prompt, AiHttpClient, ModelInfo, PromptRequest, ProviderError, DEFAULT_LMSTUDIO_HOST,
-    DEFAULT_OLLAMA_HOST,
+    default_cloud_models, fetch_lmstudio_models as query_lmstudio_models,
+    fetch_ollama_models, fetch_openai_compatible_models as query_openai_compatible_models,
+    stream_prompt, AiHttpClient, ChatMessage, ModelInfo, PromptRequest, ProviderError,
+    DEFAULT_LMSTUDIO_HOST, DEFAULT_OLLAMA_HOST,
 };
 use crate::ai::stream::ActiveStream;
 use crate::{native_input, secure_store};
@@ -11,14 +12,52 @@ use arboard::Clipboard;
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Position, State};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 static CAPTURE_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
+#[cfg(target_os = "windows")]
+fn global_cursor_position() -> Option<(i32, i32)> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    let mut point = POINT { x: 0, y: 0 };
+    unsafe { GetCursorPos(&mut point).ok()? };
+    Some((point.x, point.y))
+}
+
+/// Moves the window just below-right of the cursor (Raycast-style), clamped to
+/// the monitor work area so it never renders off-screen.
+fn position_near_cursor(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "windows")]
+    {
+        let (Some((cursor_x, cursor_y)), Ok(Some(monitor))) =
+            (global_cursor_position(), window.current_monitor())
+        else {
+            return;
+        };
+        let work = monitor.work_area();
+        let size = window.outer_size().unwrap_or_default();
+        let margin = 16_i32;
+        let min_x = work.position.x as i32;
+        let min_y = work.position.y as i32;
+        let max_x = min_x + work.size.width as i32 - size.width as i32 - margin;
+        let max_y = min_y + work.size.height as i32 - size.height as i32 - margin;
+        let x = (cursor_x + margin).clamp(min_x, max_x.max(min_x));
+        let y = (cursor_y + margin).clamp(min_y, max_y.max(min_y));
+        let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+    }
+}
+
 #[derive(Default)]
 pub struct ShortcutRegistration {
-    error: Mutex<Option<String>>,
+    pub active: Mutex<Option<Shortcut>>,
+    pub error: Mutex<Option<String>>,
 }
 
 #[derive(Serialize)]
@@ -32,6 +71,7 @@ fn reveal_window(app: &AppHandle, context: Option<String>) -> Result<(), String>
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "The main window is not available".to_string())?;
+    position_near_cursor(&window);
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
     if let Some(text) = context {
@@ -73,22 +113,71 @@ pub fn toggle_from_shortcut(app: &AppHandle) {
     }
 }
 
-pub fn register_global_shortcut(app: &AppHandle, status: &ShortcutRegistration) -> Result<(), String> {
-    let shortcut = Shortcut::new(Some(Modifiers::ALT), Code::Space);
+pub fn register_global_shortcut(
+    app: &AppHandle,
+    status: &ShortcutRegistration,
+    shortcut: Shortcut,
+) -> Result<(), String> {
     let result = app
         .global_shortcut()
         .register(shortcut)
-        .map_err(|error| format!("Could not register Alt+Space: {error}"));
+        .map_err(|error| format!("Could not register {shortcut}: {error}"));
+    if result.is_ok() {
+        *status.active.lock() = Some(shortcut);
+    }
     *status.error.lock() = result.as_ref().err().cloned();
     result
 }
 
+/// Re-registers the global shortcut from a user-configurable string (e.g. "Alt+Space",
+/// "Ctrl+Shift+Space"). Unregisters the previous shortcut first so updates apply cleanly.
 #[tauri::command]
-pub fn get_shortcut_status(status: State<'_, ShortcutRegistration>) -> ShortcutStatus {
-    let error = status.error.lock().clone();
-    ShortcutStatus {
-        registered: error.is_none(),
-        error,
+pub fn register_shortcut(
+    app: AppHandle,
+    status: State<'_, ShortcutRegistration>,
+    shortcut: String,
+) -> ShortcutStatus {
+    let parsed = match shortcut.trim().parse::<Shortcut>() {
+        Ok(parsed) => parsed,
+        Err(_) => {
+            let message = format!(
+                "Invalid shortcut \"{shortcut}\". Use Tauri syntax, e.g. Alt+Space or Ctrl+Shift+Space."
+            );
+            *status.error.lock() = Some(message.clone());
+            return ShortcutStatus {
+                registered: false,
+                error: Some(message),
+            };
+        }
+    };
+
+    let previous = status.active.lock().take();
+    if let Some(previous) = previous {
+        let _ = app.global_shortcut().unregister(previous);
+    }
+    match app.global_shortcut().register(parsed) {
+        Ok(()) => {
+            *status.active.lock() = Some(parsed);
+            *status.error.lock() = None;
+            ShortcutStatus {
+                registered: true,
+                error: None,
+            }
+        }
+        Err(error) => {
+            // Keep the previously working shortcut if the new one cannot be registered.
+            if let Some(previous) = previous {
+                if app.global_shortcut().register(previous).is_ok() {
+                    *status.active.lock() = Some(previous);
+                }
+            }
+            let message = format!("Could not register {shortcut}: {error}");
+            *status.error.lock() = Some(message.clone());
+            ShortcutStatus {
+                registered: false,
+                error: Some(message),
+            }
+        }
     }
 }
 
@@ -111,12 +200,17 @@ pub async fn auto_insert_text(app: AppHandle, text: String) -> Result<(), String
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }
-    tauri::async_runtime::spawn_blocking(move || {
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        native_input::auto_insert(text)
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    let result = tauri::async_runtime::spawn_blocking(move || native_input::auto_insert(text))
+        .await
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = result {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -143,11 +237,21 @@ pub async fn fetch_lmstudio_models(
 }
 
 #[tauri::command]
+pub async fn fetch_openai_compatible_models(
+    client: State<'_, AiHttpClient>,
+    host: String,
+) -> Result<Vec<ModelInfo>, String> {
+    query_openai_compatible_models(&client.0, &host)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn fetch_cloud_models() -> Vec<ModelInfo> {
     default_cloud_models()
 }
 
-/// Streams tokens on `llm-token`. The signature matches the requested backend technical specification exactly.
+/// Streams tokens on `llm-token`.
 #[tauri::command]
 pub async fn send_prompt_stream(
     app: AppHandle,
@@ -159,6 +263,10 @@ pub async fn send_prompt_stream(
     context_text: Option<String>,
     api_key: Option<String>,
     host: Option<String>,
+    system_prompt: Option<String>,
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+    history: Option<Vec<ChatMessage>>,
     request_id: Option<String>,
 ) -> Result<(), String> {
     let resolved_key = match api_key.map(|key| key.trim().to_owned()) {
@@ -174,6 +282,15 @@ pub async fn send_prompt_stream(
             };
             tauri::async_runtime::spawn_blocking(move || {
                 secure_store::get_api_key(&key_provider)
+            })
+            .await
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?
+        }
+        _ if provider.trim().starts_with("custom:") => {
+            let provider_id = provider.trim()[7..].to_owned();
+            tauri::async_runtime::spawn_blocking(move || {
+                secure_store::get_custom_api_key(&provider_id)
             })
             .await
             .map_err(|error| error.to_string())?
@@ -208,10 +325,13 @@ pub async fn send_prompt_stream(
         prompt,
         context_text,
         api_key: resolved_key,
-        system_prompt: None,
+        system_prompt: system_prompt
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty()),
         host: resolved_host,
-        temperature: Some(0.7),
-        max_tokens: Some(4096),
+        temperature,
+        max_tokens,
+        history: history.unwrap_or_default(),
         request_id: resolved_request_id,
     };
 
@@ -251,6 +371,34 @@ pub async fn delete_api_key(provider: String) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn save_custom_api_key(provider: String, key: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || secure_store::save_custom_api_key(&provider, &key))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_custom_api_key(provider: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || secure_store::delete_custom_api_key(&provider))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_custom_api_key_status(provider: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(
+        move || -> Result<Option<String>, secure_store::SecureStoreError> {
+            Ok(secure_store::get_custom_api_key(&provider)?.map(|key| secure_store::mask_key(&key)))
+        },
+    )
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -294,7 +442,8 @@ pub async fn check_ollama_health(
 ) -> Result<HealthStatus, String> {
     let host = host.unwrap_or_else(|| DEFAULT_OLLAMA_HOST.into());
     let url = format!("{}/api/version", host.trim().trim_end_matches('/'));
-    match client.0.get(url).send().await {
+    // Short timeout so the health indicator reacts fast when Ollama is offline.
+    match client.0.get(url).timeout(Duration::from_secs(2)).send().await {
         Ok(response) if response.status().is_success() => {
             let version = response
                 .json::<serde_json::Value>()

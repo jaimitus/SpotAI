@@ -1,24 +1,33 @@
 import {
+  Cloud,
   ExternalLink,
   Eye,
   EyeOff,
   Globe,
+  Pencil,
   Plus,
   RefreshCw,
+  Rocket,
   Save,
   Settings2,
   Sparkles,
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../lib/i18n";
+import { APP_VERSION } from "../lib/version";
 import {
   checkOllamaHealth,
   deleteApiKey,
+  deleteCustomApiKey,
   getApiKeyStatus,
+  getCustomApiKeyStatus,
+  isTauri,
   openExternalUrl,
+  registerShortcut,
   saveApiKeys,
+  saveCustomApiKey,
   saveSettings,
 } from "../lib/tauri";
 import type {
@@ -26,6 +35,7 @@ import type {
   ApiKeys,
   AppSettings,
   CustomAction,
+  CustomProvider,
   HealthStatus,
   Language,
 } from "../types";
@@ -53,6 +63,22 @@ export function SettingsModal({
   const [savedFlash, setSavedFlash] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"general" | "providers" | "customButtons">("general");
+  const [shortcutDraft, setShortcutDraft] = useState("Alt+Space");
+  const [autostartEnabled, setAutostartEnabled] = useState(false);
+  // Real OS-level autostart state read on open; used to detect a user toggle
+  // even when it differs from the value persisted in settings.
+  const autostartOsRef = useRef<boolean | null>(null);
+
+  // Custom provider form state
+  const [customForm, setCustomForm] = useState({ name: "", baseUrl: "", defaultModel: "" });
+  const [customKey, setCustomKey] = useState("");
+  const [customShowKey, setCustomShowKey] = useState(false);
+  const [editingCustomId, setEditingCustomId] = useState<string | null>(null);
+  const [customKeyStatus, setCustomKeyStatus] = useState<Record<string, string | null>>({});
+  // Custom key writes are deferred to the main Save so cancelling the modal
+  // cannot leave orphaned credentials in the keyring.
+  const [pendingCustomKeys, setPendingCustomKeys] = useState<Record<string, string>>({});
+  const [pendingCustomDeletes, setPendingCustomDeletes] = useState<string[]>([]);
 
   // New Custom Button Form state
   const [newLabel, setNewLabel] = useState("");
@@ -63,15 +89,37 @@ export function SettingsModal({
     setDraft({
       ...settings,
       language: settings.language || "en",
+      systemPrompt: settings.systemPrompt || "",
       customActions: settings.customActions || [],
     });
+    setShortcutDraft(settings.globalShortcut || "Alt+Space");
+    setAutostartEnabled(Boolean(settings.autostart));
+    autostartOsRef.current = Boolean(settings.autostart);
+    // Sync the toggle with the OS-level autostart registration (e.g. the user
+    // may have toggled it via Task Manager startup apps).
+    if (isTauri()) {
+      import("@tauri-apps/plugin-autostart")
+        .then(({ isEnabled }) => isEnabled())
+        .then((enabled) => {
+          autostartOsRef.current = enabled;
+          setAutostartEnabled(enabled);
+        })
+        .catch(() => undefined);
+    }
     setKeys({});
+    setPendingCustomKeys({});
+    setPendingCustomDeletes([]);
     setSaveError(null);
     void (async () => {
       try {
         setKeyStatus(await getApiKeyStatus());
         const h = await checkOllamaHealth(settings.ollamaHost);
         setHealth(h);
+        const statuses: Record<string, string | null> = {};
+        for (const cp of settings.customProviders || []) {
+          statuses[cp.id] = await getCustomApiKeyStatus(cp.id).catch(() => null);
+        }
+        setCustomKeyStatus(statuses);
       } catch (cause) {
         setSaveError(cause instanceof Error ? cause.message : String(cause));
       }
@@ -99,9 +147,40 @@ export function SettingsModal({
     setSaving(true);
     setSaveError(null);
     try {
-      saveSettings(draft);
+      // Apply the global shortcut first so an invalid/unavailable combo is reported
+      // before anything else is persisted.
+      const requestedShortcut = shortcutDraft.trim() || "Alt+Space";
+      let updated = draft;
+      if (requestedShortcut !== (draft.globalShortcut || "Alt+Space")) {
+        const status = await registerShortcut(requestedShortcut);
+        if (!status.registered) {
+          setSaveError(
+            status.error || `Could not register shortcut "${requestedShortcut}"`,
+          );
+          setSaving(false);
+          return;
+        }
+        updated = { ...draft, globalShortcut: requestedShortcut };
+        setDraft(updated);
+      }
+      // Apply the start-with-Windows preference to the OS. Compare against the
+      // state read from the OS on open (not the stored setting) so toggling off
+      // an externally enabled entry is not lost. Skipped in browser mode where
+      // the plugin has no runtime.
+      if (isTauri() && autostartEnabled !== (autostartOsRef.current ?? Boolean(settings.autostart))) {
+        const { enable, disable } = await import("@tauri-apps/plugin-autostart");
+        if (autostartEnabled) await enable();
+        else await disable();
+      }
+      saveSettings(updated);
       await saveApiKeys(keys);
-      onSave(draft);
+      for (const [id, key] of Object.entries(pendingCustomKeys)) {
+        if (key.trim()) await saveCustomApiKey(id, key.trim());
+      }
+      for (const id of pendingCustomDeletes) {
+        await deleteCustomApiKey(id);
+      }
+      onSave(updated);
       setSavedFlash(true);
       setTimeout(() => {
         setSavedFlash(false);
@@ -124,9 +203,92 @@ export function SettingsModal({
     }
   };
 
+  const toggleAutostart = (value: boolean) => {
+    setAutostartEnabled(value);
+    update("autostart", value);
+  };
+
   const pingOllama = async () => {
     const h = await checkOllamaHealth(draft.ollamaHost);
     setHealth(h);
+  };
+
+  const startEditCustom = (cp: CustomProvider) => {
+    setEditingCustomId(cp.id);
+    setCustomForm({
+      name: cp.name,
+      baseUrl: cp.baseUrl,
+      defaultModel: cp.defaultModel || "",
+    });
+    setCustomKey("");
+    setCustomShowKey(false);
+  };
+
+  const resetCustomForm = () => {
+    setEditingCustomId(null);
+    setCustomForm({ name: "", baseUrl: "", defaultModel: "" });
+    setCustomKey("");
+    setCustomShowKey(false);
+  };
+
+  const saveCustomProvider = async () => {
+    const name = customForm.name.trim();
+    const baseUrl = customForm.baseUrl.trim();
+    if (!name || !baseUrl) return;
+    if (!/^https?:\/\//i.test(baseUrl)) {
+      setSaveError(t(currentLang, "baseUrlError"));
+      return;
+    }
+    const id = editingCustomId ?? `custom_${Date.now()}`;
+    const updated: CustomProvider = {
+      id,
+      name,
+      baseUrl,
+      defaultModel: customForm.defaultModel.trim() || undefined,
+    };
+    setDraft((d) => {
+      const others = (d.customProviders || []).filter((cp) => cp.id !== id);
+      return { ...d, customProviders: [...others, updated] };
+    });
+    if (customKey.trim()) {
+      setPendingCustomKeys((pending) => ({ ...pending, [id]: customKey.trim() }));
+      setPendingCustomDeletes((pending) => pending.filter((pid) => pid !== id));
+      setCustomKeyStatus((s) => ({ ...s, [id]: "••••" }));
+    }
+    resetCustomForm();
+  };
+
+  const removeCustomProvider = async (cp: CustomProvider) => {
+    setDraft((d) => ({
+      ...d,
+      customProviders: (d.customProviders || []).filter((p) => p.id !== cp.id),
+    }));
+    setCustomKeyStatus((s) => {
+      const next = { ...s };
+      delete next[cp.id];
+      return next;
+    });
+    if (editingCustomId === cp.id) resetCustomForm();
+    setPendingCustomDeletes((pending) =>
+      pending.includes(cp.id) ? pending : [...pending, cp.id],
+    );
+    setPendingCustomKeys((pending) => {
+      const next = { ...pending };
+      delete next[cp.id];
+      return next;
+    });
+  };
+
+  const removeCustomKey = (cp: CustomProvider) => {
+    setPendingCustomDeletes((pending) =>
+      pending.includes(cp.id) ? pending : [...pending, cp.id],
+    );
+    setPendingCustomKeys((pending) => {
+      const next = { ...pending };
+      delete next[cp.id];
+      return next;
+    });
+    setCustomKeyStatus((s) => ({ ...s, [cp.id]: null }));
   };
 
   const handleAddCustomButton = () => {
@@ -154,10 +316,10 @@ export function SettingsModal({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-black/65 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      {/* Transparent click-catcher: closes on outside click without dimming
+          the whole window (a full-window overlay looks like a black square
+          behind the rounded shell). */}
+      <div className="absolute inset-0" onClick={onClose} />
       <div
         className={cn(
           "relative z-10 flex max-h-[min(660px,92vh)] w-full max-w-lg flex-col overflow-hidden",
@@ -237,10 +399,12 @@ export function SettingsModal({
 
               <section className="space-y-3 pt-2">
                 <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                  Generation & Limits
+                  {t(currentLang, "generationLimits")}
                 </h3>
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label={`Temperature | ${draft.temperature.toFixed(2)}`}>
+                  <Field
+                    label={`${t(currentLang, "temperature")} | ${draft.temperature.toFixed(2)}`}
+                  >
                     <input
                       type="range"
                       min={0}
@@ -253,7 +417,7 @@ export function SettingsModal({
                       className="w-full accent-cyan-400"
                     />
                   </Field>
-                  <Field label="Max tokens">
+                  <Field label={t(currentLang, "maxTokens")}>
                     <input
                       type="number"
                       min={256}
@@ -270,15 +434,80 @@ export function SettingsModal({
               </section>
 
               {/* Shortcut info */}
-              <section className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3">
-                <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  Global hotkey:{" "}
-                  <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-cyan-300">
-                    Alt + Space
-                  </kbd>
-                  <span className="text-zinc-600"> | </span>
-                  Esc hides window | Runs in system tray
+              <section className="space-y-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  <Settings2 className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>{t(currentLang, "globalHotkeyLabel")}</span>
+                </div>
+                <input
+                  value={shortcutDraft}
+                  onChange={(e) => setShortcutDraft(e.target.value)}
+                  className={inputCls}
+                  placeholder="Alt+Space"
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                <p className="text-[10px] text-zinc-500 leading-relaxed">
+                  {t(currentLang, "shortcutSyntaxHint")}
                 </p>
+                <p className="text-[10px] text-zinc-500 leading-relaxed">
+                  {t(currentLang, "escHidesWindow")}{" "}
+                  <span className="text-zinc-700">|</span>{" "}
+                  {t(currentLang, "runsInTray")}
+                </p>
+              </section>
+
+              {/* Startup: launch SpotAI with Windows */}
+              <section className="space-y-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  <Rocket className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>{t(currentLang, "startupLabel")}</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autostartEnabled}
+                  onClick={() => toggleAutostart(!autostartEnabled)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-left transition hover:bg-white/[0.05]"
+                >
+                  <span>
+                    <span className="block text-[12px] font-medium text-zinc-200">
+                      {t(currentLang, "startupLabel")}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] leading-relaxed text-zinc-500">
+                      {t(currentLang, "startupDesc")}
+                    </span>
+                  </span>
+                  <span
+                    className={cn(
+                      "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
+                      autostartEnabled ? "bg-cyan-500/80" : "bg-white/10",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+                        autostartEnabled ? "translate-x-[18px]" : "translate-x-[2px]",
+                      )}
+                    />
+                  </span>
+                </button>
+              </section>
+
+              <section className="space-y-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>{t(currentLang, "systemPromptLabel")}</span>
+                </div>
+                <Field label={t(currentLang, "systemPromptHelp")}>
+                  <textarea
+                    value={draft.systemPrompt || ""}
+                    onChange={(e) => update("systemPrompt", e.target.value)}
+                    rows={3}
+                    className={cn(inputCls, "resize-none")}
+                    spellCheck={false}
+                  />
+                </Field>
               </section>
             </>
           )}
@@ -289,7 +518,7 @@ export function SettingsModal({
               {/* Local engines */}
               <section className="space-y-3">
                 <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                  Local Engines
+                  {t(currentLang, "localEngines")}
                 </h3>
 
                 <Field label={t(currentLang, "ollamaHostLabel")}>
@@ -307,7 +536,7 @@ export function SettingsModal({
                       className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 text-[11px] text-zinc-300 transition hover:bg-white/[0.08]"
                     >
                       <RefreshCw className="h-3 w-3" />
-                      Ping
+                      {t(currentLang, "ping")}
                     </button>
                   </div>
                   {health && (
@@ -318,8 +547,8 @@ export function SettingsModal({
                       )}
                     >
                       {health.ollama
-                        ? `Online${health.ollamaVersion ? ` | v${health.ollamaVersion}` : ""}`
-                        : "Offline. Start Ollama to use local models."}
+                        ? `${t(currentLang, "online")}${health.ollamaVersion ? ` | v${health.ollamaVersion}` : ""}`
+                        : t(currentLang, "offlineStartOllama")}
                     </p>
                   )}
                   <p className="mt-1 text-[10px] text-zinc-500 leading-normal">
@@ -327,7 +556,7 @@ export function SettingsModal({
                   </p>
                 </Field>
 
-                <Field label="LM Studio Host">
+                <Field label={t(currentLang, "lmStudioHost")}>
                   <input
                     value={draft.lmstudioHost}
                     onChange={(e) => update("lmstudioHost", e.target.value)}
@@ -341,7 +570,7 @@ export function SettingsModal({
               {/* Cloud API keys */}
               <section className="space-y-3 pt-2">
                 <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                  Cloud API Keys (DPAPI Encrypted)
+                  {t(currentLang, "cloudApiKeys")}
                 </h3>
 
                 {(
@@ -363,15 +592,15 @@ export function SettingsModal({
                         className={cn(inputCls, "pr-9")}
                         placeholder={
                           keyStatus[id]
-                            ? `Saved securely (${keyStatus[id]})`
-                            : `Enter ${label} API key`
+                            ? `${t(currentLang, "savedSecurely")} (${keyStatus[id]})`
+                            : `${t(currentLang, "enterApiKey")} (${label})`
                         }
                         spellCheck={false}
                         autoComplete="off"
                       />
                       <button
                         type="button"
-                        aria-label={show[id] ? `Hide ${label} API key` : `Show ${label} API key`}
+                        aria-label={show[id] ? t(currentLang, "hideKey") : t(currentLang, "showKey")}
                         onClick={() =>
                           setShow((s) => ({ ...s, [id]: !s[id] }))
                         }
@@ -391,11 +620,182 @@ export function SettingsModal({
                         className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-zinc-500 transition hover:text-rose-300"
                       >
                         <Trash2 className="h-3 w-3" />
-                        Remove saved key
+                        {t(currentLang, "removeSavedKey")}
                       </button>
                     )}
                   </Field>
                 ))}
+              </section>
+
+              {/* Custom OpenAI-compatible providers */}
+              <section className="space-y-3 pt-2">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  {t(currentLang, "customProviders")}
+                </h3>
+                <p className="text-[10px] leading-relaxed text-zinc-500">
+                  {t(currentLang, "customProviderDesc")}
+                </p>
+
+                {/* Form */}
+                <div className="space-y-3 rounded-xl border border-cyan-400/20 bg-cyan-400/[0.04] p-3.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-cyan-300">
+                      {editingCustomId
+                        ? t(currentLang, "saveProvider")
+                        : t(currentLang, "addProvider")}
+                    </span>
+                    {editingCustomId && (
+                      <button
+                        type="button"
+                        onClick={resetCustomForm}
+                        className="rounded-md px-2 py-1 text-[10px] text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+                      >
+                        {t(currentLang, "cancelButton")}
+                      </button>
+                    )}
+                  </div>
+                  <Field label={t(currentLang, "providerName")}>
+                    <input
+                      value={customForm.name}
+                      onChange={(e) => setCustomForm((f) => ({ ...f, name: e.target.value }))}
+                      className={inputCls}
+                      placeholder="OpenRouter"
+                      spellCheck={false}
+                    />
+                  </Field>
+                  <Field label={t(currentLang, "baseUrlLabel")}>
+                    <input
+                      value={customForm.baseUrl}
+                      onChange={(e) => setCustomForm((f) => ({ ...f, baseUrl: e.target.value }))}
+                      className={inputCls}
+                      placeholder="https://openrouter.ai/api/v1"
+                      spellCheck={false}
+                    />
+                  </Field>
+                  <Field label={t(currentLang, "customDefaultModelLabel")}>
+                    <input
+                      value={customForm.defaultModel}
+                      onChange={(e) =>
+                        setCustomForm((f) => ({ ...f, defaultModel: e.target.value }))
+                      }
+                      className={inputCls}
+                      placeholder="anthropic/claude-3.5-sonnet"
+                      spellCheck={false}
+                    />
+                  </Field>
+                  <Field label={t(currentLang, "providerApiKey")}>
+                    <div className="relative">
+                      <input
+                        type={customShowKey ? "text" : "password"}
+                        value={customKey}
+                        onChange={(e) => setCustomKey(e.target.value)}
+                        className={cn(inputCls, "pr-9")}
+                        placeholder={
+                          editingCustomId && customKeyStatus[editingCustomId]
+                            ? t(currentLang, "savedSecurely")
+                            : undefined
+                        }
+                        spellCheck={false}
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        aria-label={
+                          customShowKey ? t(currentLang, "hideKey") : t(currentLang, "showKey")
+                        }
+                        onClick={() => setCustomShowKey((v) => !v)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                      >
+                        {customShowKey ? (
+                          <EyeOff className="h-3.5 w-3.5" />
+                        ) : (
+                          <Eye className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </Field>
+                  <button
+                    type="button"
+                    disabled={!customForm.name.trim() || !customForm.baseUrl.trim()}
+                    onClick={() => void saveCustomProvider()}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium transition select-none",
+                      customForm.name.trim() && customForm.baseUrl.trim()
+                        ? "bg-cyan-500/90 text-zinc-950 hover:bg-cyan-400"
+                        : "bg-white/5 text-zinc-600 cursor-not-allowed",
+                    )}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    {editingCustomId ? t(currentLang, "saveProvider") : t(currentLang, "addProvider")}
+                  </button>
+                </div>
+
+                {/* List */}
+                <div className="space-y-2">
+                  {(draft.customProviders || []).length === 0 ? (
+                    <p className="text-[11px] italic text-zinc-500">
+                      {t(currentLang, "noCustomProviders")}
+                    </p>
+                  ) : (
+                    (draft.customProviders || []).map((cp) => (
+                      <div
+                        key={cp.id}
+                        className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3"
+                      >
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Cloud className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+                            <span className="text-[12px] font-medium text-zinc-200">
+                              {cp.name}
+                            </span>
+                          </div>
+                          <p className="truncate font-mono text-[10px] text-zinc-500">
+                            {cp.baseUrl}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2 text-[10px] text-zinc-500">
+                            <span className="rounded-full bg-white/[0.04] px-1.5 py-0.5">
+                              {cp.defaultModel || "—"}
+                            </span>
+                            {customKeyStatus[cp.id] ? (
+                              <>
+                                <span className="text-emerald-400/80">
+                                  {customKeyStatus[cp.id]}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => void removeCustomKey(cp)}
+                                  className="text-zinc-500 transition hover:text-rose-300"
+                                >
+                                  {t(currentLang, "removeSavedKey")}
+                                </button>
+                              </>
+                            ) : (
+                              <span className="text-zinc-600">{t(currentLang, "noKey")}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => startEditCustom(cp)}
+                            title={t(currentLang, "editProvider")}
+                            className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/5 hover:text-cyan-300"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void removeCustomProvider(cp)}
+                            title={t(currentLang, "deleteProvider")}
+                            className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-rose-500/10 hover:text-rose-300"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </section>
             </>
           )}
@@ -451,11 +851,11 @@ export function SettingsModal({
               {/* Existing Custom Buttons List */}
               <div className="space-y-2">
                 <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                  Active Buttons ({(draft.customActions || []).length})
+                  {t(currentLang, "activeButtons")} ({(draft.customActions || []).length})
                 </h4>
                 {(draft.customActions || []).length === 0 ? (
                   <p className="text-[11px] text-zinc-500 italic">
-                    No custom buttons created yet. Create your first button above!
+                    {t(currentLang, "noCustomButtons")}
                   </p>
                 ) : (
                   <div className="space-y-2">
@@ -478,7 +878,7 @@ export function SettingsModal({
                           type="button"
                           onClick={() => handleDeleteCustomButton(btn.id)}
                           className="rounded-lg p-1.5 text-zinc-500 hover:bg-rose-500/10 hover:text-rose-300 transition"
-                          title="Delete button"
+                          title={t(currentLang, "deleteButton")}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
@@ -494,7 +894,7 @@ export function SettingsModal({
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-white/[0.06] px-5 py-3">
           <div className="flex items-center gap-2 text-[11px] text-zinc-500">
-            <span className="font-medium text-zinc-300">SpotAI v1.1.0</span>
+            <span className="font-medium text-zinc-300">SpotAI v{APP_VERSION}</span>
             <span className="text-zinc-700">•</span>
             <button
               type="button"
@@ -502,7 +902,7 @@ export function SettingsModal({
               className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 hover:underline transition"
             >
               <ExternalLink className="h-3.5 w-3.5" />
-              GitHub Repo
+              {t(currentLang, "githubRepo")}
             </button>
           </div>
 

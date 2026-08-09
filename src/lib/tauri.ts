@@ -70,11 +70,11 @@ export async function autoInsertText(text: string): Promise<void> {
   await invoke("auto_insert_text", { text });
 }
 
-export async function getShortcutStatus(): Promise<ShortcutStatus> {
+export async function registerShortcut(shortcut: string): Promise<ShortcutStatus> {
   if (!isTauri()) {
     return { registered: false, error: "The Tauri desktop runtime is not active" };
   }
-  return invoke<ShortcutStatus>("get_shortcut_status");
+  return invoke<ShortcutStatus>("register_shortcut", { shortcut });
 }
 
 export async function fetchLocalModels(host?: string): Promise<ModelInfo[]> {
@@ -95,6 +95,16 @@ export async function fetchLmStudioModels(host?: string): Promise<ModelInfo[]> {
   }
 }
 
+export async function fetchOpenAICompatibleModels(baseUrl: string): Promise<ModelInfo[]> {
+  try {
+    return await invoke<ModelInfo[]>("fetch_openai_compatible_models", {
+      host: baseUrl,
+    });
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchCloudModels(): Promise<ModelInfo[]> {
   if (isTauri()) return invoke<ModelInfo[]>("fetch_cloud_models");
   return BUILTIN_CLOUD_MODELS.map((model) => ({ ...model }));
@@ -108,6 +118,10 @@ export async function sendPromptStream(request: PromptRequest): Promise<void> {
     contextText: request.contextText ?? null,
     apiKey: request.apiKey ?? null,
     host: request.host ?? null,
+    systemPrompt: request.systemPrompt ?? null,
+    temperature: request.temperature ?? null,
+    maxTokens: request.maxTokens ?? null,
+    history: request.history ?? null,
     requestId: request.requestId ?? null,
   });
 }
@@ -126,14 +140,6 @@ export async function startDraggingWindow(): Promise<void> {
   await getCurrentWindow().startDragging();
 }
 
-export async function startResizingWindow(
-  direction: "SouthEast" | "South" | "East" = "SouthEast",
-): Promise<void> {
-  if (!isTauri()) return;
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  await getCurrentWindow().startResizing(direction);
-}
-
 export async function saveApiKeys(keys: ApiKeys): Promise<void> {
   await invoke("save_api_keys", { keys });
 }
@@ -147,6 +153,21 @@ export async function deleteApiKey(provider: string): Promise<void> {
   await invoke("delete_api_key", { provider });
 }
 
+export async function saveCustomApiKey(provider: string, key: string): Promise<void> {
+  await invoke("save_custom_api_key", { provider, key });
+}
+
+export async function deleteCustomApiKey(provider: string): Promise<void> {
+  await invoke("delete_custom_api_key", { provider });
+}
+
+export async function getCustomApiKeyStatus(
+  provider: string,
+): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("get_custom_api_key_status", { provider });
+}
+
 export function loadSettings(): AppSettings {
   const defaults: AppSettings = {
     language: "en",
@@ -155,9 +176,12 @@ export function loadSettings(): AppSettings {
     defaultProvider: "ollama",
     defaultModel: "",
     globalShortcut: "Alt+Space",
+    systemPrompt: "",
     temperature: 0.7,
     maxTokens: 4096,
     customActions: [],
+    customProviders: [],
+    autostart: false,
   };
   try {
     const value = localStorage.getItem(SETTINGS_KEY);
@@ -187,6 +211,10 @@ export function resolveHost(
 ): string | null {
   if (provider === "ollama") return settings.ollamaHost;
   if (provider === "lmstudio") return settings.lmstudioHost;
+  if (provider.startsWith("custom:")) {
+    const id = provider.slice("custom:".length);
+    return settings.customProviders?.find((cp) => cp.id === id)?.baseUrl ?? null;
+  }
   return null;
 }
 

@@ -3,129 +3,201 @@ import {
   ClipboardCopy,
   CornerDownLeft,
   Loader2,
+  MessageSquarePlus,
   Square,
-  Trash2,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { autoInsertText, isTauri, setClipboardText } from "../lib/tauri";
+import { autoInsertText, setClipboardText } from "../lib/tauri";
 import { t } from "../lib/i18n";
-import type { Language, StreamStatus } from "../types";
+import type { ChatMessage, Language, StreamStatus } from "../types";
 import { cn } from "../utils/cn";
 
 interface ResponsePanelProps {
-  response: string;
+  messages: ChatMessage[];
+  current: string;
   status: StreamStatus;
   error: string | null;
   lang?: Language;
   onStop: () => void;
-  onClear: () => void;
+  onNewChat: () => void;
+  onAutoInsertSuccess?: () => void;
 }
 
-export function ResponsePanel({
-  response,
-  status,
-  error,
-  lang = "en",
-  onStop,
-  onClear,
-}: ResponsePanelProps) {
+function CodeBlock({ children, lang }: { children: React.ReactNode; lang?: Language }) {
   const [copied, setCopied] = useState(false);
-  const [insertError, setInsertError] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (status === "streaming") {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-    }
-  }, [response, status]);
-
-  if (status === "idle" && !response && !error) {
-    return null;
-  }
+  const preRef = useRef<HTMLPreElement>(null);
 
   const handleCopy = async () => {
-    await setClipboardText(response);
+    const text = preRef.current?.textContent ?? "";
+    await setClipboardText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
 
+  return (
+    <div className="group/pre relative">
+      <button
+        type="button"
+        onClick={() => void handleCopy()}
+        title={t(lang, "copyCodeBlock")}
+        aria-label={t(lang, "copyCodeBlock")}
+        className="absolute right-2 top-2 rounded-md border border-white/10 bg-[#0c0e14]/90 p-1.5 text-zinc-400 opacity-0 shadow-lg transition hover:text-cyan-300 focus-visible:opacity-100 group-hover/pre:opacity-100"
+      >
+        {copied ? (
+          <Check className="h-3 w-3 text-emerald-400" />
+        ) : (
+          <ClipboardCopy className="h-3 w-3" />
+        )}
+      </button>
+      <pre
+        ref={preRef}
+        className="my-2 overflow-x-auto rounded-lg border border-white/10 bg-[#0a0c12] p-3 text-[12px] leading-relaxed"
+      >
+        {children}
+      </pre>
+    </div>
+  );
+}
+
+function Markdown({
+  content,
+  lang,
+  streaming,
+}: {
+  content: string;
+  lang: Language;
+  streaming?: boolean;
+}) {
+  return (
+    <div className="markdown-body text-[13px] leading-relaxed text-zinc-200">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={{
+          code({ className, children, ...props }) {
+            const isBlock = /language-/.test(className || "");
+            if (!isBlock) {
+              return (
+                <code
+                  className="rounded bg-white/10 px-1 py-0.5 font-mono text-[12px] text-cyan-200"
+                  {...props}
+                >
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <code className={className} {...props}>
+                {children}
+              </code>
+            );
+          },
+          pre({ children }) {
+            return <CodeBlock lang={lang}>{children}</CodeBlock>;
+          },
+          a({ href, children }) {
+            return (
+              <a
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                className="text-cyan-400 underline decoration-cyan-400/30 underline-offset-2 hover:decoration-cyan-400"
+              >
+                {children}
+              </a>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+      {streaming && (
+        <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-cyan-400/80 align-middle" />
+      )}
+    </div>
+  );
+}
+
+function AssistantMessage({
+  content,
+  streaming,
+  lang,
+}: {
+  content: string;
+  streaming?: boolean;
+  lang: Language;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await setClipboardText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  };
+
+  return (
+    <div className="group/msg relative">
+      {!streaming && (
+        <button
+          type="button"
+          onClick={() => void handleCopy()}
+          title={t(lang, "copy")}
+          aria-label={t(lang, "copy")}
+          className="absolute right-0 top-0 z-10 rounded-md border border-white/10 bg-[#0c0e14]/90 p-1.5 text-zinc-500 opacity-0 shadow-lg transition hover:text-cyan-300 focus-visible:opacity-100 group-hover/msg:opacity-100"
+        >
+          {copied ? (
+            <Check className="h-3 w-3 text-emerald-400" />
+          ) : (
+            <ClipboardCopy className="h-3 w-3" />
+          )}
+        </button>
+      )}
+      <Markdown content={content} lang={lang} streaming={streaming} />
+    </div>
+  );
+}
+
+export function ResponsePanel({
+  messages,
+  current,
+  status,
+  error,
+  lang = "en",
+  onStop,
+  onNewChat,
+  onAutoInsertSuccess,
+}: ResponsePanelProps) {
+  const [insertError, setInsertError] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [current, status, messages.length]);
+
+  const lastAssistantContent = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant") return messages[i].content;
+    }
+    return "";
+  }, [messages]);
+
+  const insertTarget =
+    status === "done" && current ? current : lastAssistantContent;
+  const canAutoInsert = status !== "streaming" && Boolean(insertTarget);
+  const showPanel = messages.length > 0 || status !== "idle" || Boolean(error);
+  if (!showPanel) return null;
+
   const handleAutoInsert = async () => {
     setInsertError(null);
     try {
-      await autoInsertText(response);
+      await autoInsertText(insertTarget);
+      onAutoInsertSuccess?.();
     } catch (cause) {
       setInsertError(cause instanceof Error ? cause.message : String(cause));
     }
-  };
-
-  const handleBottomResize = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!isTauri()) return;
-
-    try {
-      void getCurrentWindow().startResizing("South");
-    } catch {
-      //
-    }
-
-    const startY = e.clientY;
-    const initialHeight = window.innerHeight;
-    const initialWidth = window.innerWidth;
-    const appWindow = getCurrentWindow();
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const deltaY = moveEvent.clientY - startY;
-      const newHeight = Math.max(260, Math.min(1400, initialHeight + deltaY));
-      void appWindow.setSize(new LogicalSize(initialWidth, newHeight));
-    };
-
-    const onMouseUp = () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-  };
-
-  const handleCornerResize = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!isTauri()) return;
-
-    try {
-      void getCurrentWindow().startResizing("SouthEast");
-    } catch {
-      //
-    }
-
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const initialWidth = window.innerWidth;
-    const initialHeight = window.innerHeight;
-    const appWindow = getCurrentWindow();
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const deltaX = moveEvent.clientX - startX;
-      const deltaY = moveEvent.clientY - startY;
-      const newWidth = Math.max(460, Math.min(1400, initialWidth + deltaX));
-      const newHeight = Math.max(260, Math.min(1400, initialHeight + deltaY));
-      void appWindow.setSize(new LogicalSize(newWidth, newHeight));
-    };
-
-    const onMouseUp = () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
   };
 
   return (
@@ -168,148 +240,80 @@ export function ResponsePanel({
               {t(lang, "stop")}
             </button>
           )}
-          {response && (
-            <>
-              {status !== "streaming" && (
-                <button
-                  type="button"
-                  onClick={() => void handleAutoInsert()}
-                  title="Paste the response into the previously focused application"
-                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
-                >
-                  <CornerDownLeft className="h-3 w-3" />
-                  {t(lang, "autoInsert")}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => void handleCopy()}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
-              >
-                {copied ? (
-                  <>
-                    <Check className="h-3 w-3 text-emerald-400" />
-                    <span className="text-emerald-400">{t(lang, "copied")}</span>
-                  </>
-                ) : (
-                  <>
-                    <ClipboardCopy className="h-3 w-3" />
-                    {t(lang, "copy")}
-                  </>
-                )}
-              </button>
-            </>
-          )}
-          {(response || error) && status !== "streaming" && (
+          {canAutoInsert && (
             <button
               type="button"
-              onClick={onClear}
+              onClick={() => void handleAutoInsert()}
+              title={t(lang, "pasteIntoFocusedApp")}
               className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
             >
-              <Trash2 className="h-3 w-3" />
-              {t(lang, "clear")}
+              <CornerDownLeft className="h-3 w-3" />
+              {t(lang, "autoInsert")}
+            </button>
+          )}
+          {(messages.length > 0 || status !== "idle") && (
+            <button
+              type="button"
+              onClick={onNewChat}
+              title={t(lang, "newChat")}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+            >
+              <MessageSquarePlus className="h-3 w-3" />
+              {t(lang, "newChat")}
             </button>
           )}
         </div>
       </div>
 
       {/* Body */}
-      <div
-        ref={scrollRef}
-        className="custom-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3"
-      >
+      <div className="custom-scroll min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3">
         {error && (
-          <div className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[12px] text-rose-300">
+          <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[12px] text-rose-300">
             {error}
           </div>
         )}
         {insertError && (
-          <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-200">
-            Auto-Insert failed: {insertError}. The response remains on the clipboard.
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-200">
+            {t(lang, "autoInsertFailed")}: {insertError}. {t(lang, "remainsOnClipboard")}
           </div>
         )}
 
-        {response ? (
-          <div className="markdown-body text-[13px] leading-relaxed text-zinc-200">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeHighlight]}
-              components={{
-                code({ className, children, ...props }) {
-                  const isBlock = /language-/.test(className || "");
-                  if (!isBlock) {
-                    return (
-                      <code
-                        className="rounded bg-white/10 px-1 py-0.5 font-mono text-[12px] text-cyan-200"
-                        {...props}
-                      >
-                        {children}
-                      </code>
-                    );
-                  }
-                  return (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
-                  );
-                },
-                pre({ children }) {
-                  return (
-                    <pre className="my-2 overflow-x-auto rounded-lg border border-white/10 bg-[#0a0c12] p-3 text-[12px] leading-relaxed">
-                      {children}
-                    </pre>
-                  );
-                },
-                a({ href, children }) {
-                  return (
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-cyan-400 underline decoration-cyan-400/30 underline-offset-2 hover:decoration-cyan-400"
-                    >
-                      {children}
-                    </a>
-                  );
-                },
-              }}
-            >
-              {response}
-            </ReactMarkdown>
-            {status === "streaming" && (
-              <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-cyan-400/80 align-middle" />
-            )}
+        {messages.map((message, index) =>
+          message.role === "user" ? (
+            <div key={index} className="flex justify-end">
+              <div className="max-w-[85%] whitespace-pre-wrap rounded-xl rounded-tr-sm border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-[12px] leading-relaxed text-cyan-50">
+                {message.content}
+              </div>
+            </div>
+          ) : (
+            <div key={index} className="flex">
+              <div className="min-w-0 flex-1">
+                <AssistantMessage content={message.content} lang={lang} />
+              </div>
+            </div>
+          ),
+        )}
+
+        {(current || status !== "idle") && (
+          <div className="flex">
+            <div className="min-w-0 flex-1">
+              {current ? (
+                <AssistantMessage
+                  content={current}
+                  streaming={status === "streaming"}
+                  lang={lang}
+                />
+              ) : status === "streaming" ? (
+                <div className="flex items-center gap-2 text-[12px] text-zinc-500">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
+                  {t(lang, "waitingToken")}
+                </div>
+              ) : null}
+            </div>
           </div>
-        ) : status === "streaming" ? (
-          <div className="flex items-center gap-2 text-[12px] text-zinc-500">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
-            Waiting for the first token...
-          </div>
-        ) : null}
+        )}
 
         <div ref={bottomRef} />
-      </div>
-
-      {/* Bottom resize handle bar (generous 20px hit area) */}
-      <div
-        onMouseDown={handleBottomResize}
-        className="flex h-5 w-full cursor-s-resize items-center justify-center border-t border-white/[0.08] bg-white/[0.03] hover:bg-cyan-500/15 transition-all group select-none relative shrink-0"
-        title="Drag anywhere here to resize window height"
-      >
-        <div className="flex items-center gap-1.5 opacity-70 group-hover:opacity-100 transition-opacity">
-          <div className="h-1 w-12 rounded-full bg-zinc-500 group-hover:bg-cyan-400 group-hover:scale-x-110 transition-all shadow-sm" />
-        </div>
-        
-        {/* Generous 32x32px corner hit zone */}
-        <div
-          onMouseDown={handleCornerResize}
-          className="absolute right-0 bottom-0 w-8 h-8 flex items-center justify-center cursor-se-resize text-zinc-400 hover:text-cyan-300 hover:bg-cyan-400/20 rounded-tl transition-all z-20"
-          title="Drag corner to resize window width & height"
-        >
-          <svg width="12" height="12" viewBox="0 0 10 10" fill="none" className="translate-x-0.5 translate-y-0.5">
-            <path d="M8 2L2 8M9 5L5 9M9 8.5L8.5 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-          </svg>
-        </div>
       </div>
     </div>
   );

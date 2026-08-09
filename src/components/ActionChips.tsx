@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { t } from "../lib/i18n";
 import { ACTION_CHIPS } from "../lib/prompts";
-import type { ActionChipId, CustomAction, Language } from "../types";
+import type { ActionChipId, ContextKind, CustomAction, Language } from "../types";
 import { cn } from "../utils/cn";
 
 interface ActionChipsProps {
@@ -21,6 +21,7 @@ interface ActionChipsProps {
   customActions?: CustomAction[];
   lang?: Language;
   compact?: boolean;
+  contextKind?: ContextKind;
 }
 
 const ICONS = {
@@ -52,16 +53,29 @@ export function ActionChips({
   customActions = [],
   lang = "en",
   compact,
+  contextKind = "empty",
 }: ActionChipsProps) {
+  const priority: Record<ContextKind, ActionChipId[]> = {
+    empty: ["explain", "fix", "refactor", "summarize", "translate", "improve", "comment"],
+    text: ["summarize", "improve", "translate", "explain", "comment", "fix", "refactor"],
+    code: ["explain", "fix", "refactor", "comment", "summarize", "improve", "translate"],
+    error: ["fix", "explain", "refactor", "summarize", "comment", "improve", "translate"],
+    json: ["explain", "fix", "refactor", "summarize", "comment", "improve", "translate"],
+    url: ["summarize", "explain", "translate", "improve", "fix", "refactor", "comment"],
+  };
+  const orderedChips = [...ACTION_CHIPS].sort(
+    (a, b) => priority[contextKind].indexOf(a.id) - priority[contextKind].indexOf(b.id),
+  );
+
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center gap-1.5",
+        "custom-scroll flex flex-nowrap items-center gap-1.5 overflow-x-auto pb-0.5",
         compact ? "px-1" : "px-0",
       )}
     >
       {/* Standard built-in chips */}
-      {ACTION_CHIPS.map((chip) => {
+      {orderedChips.map((chip) => {
         const isActive = active === chip.id;
         const Icon = ICONS[chip.icon] || Sparkles;
         const translatedLabel = t(lang, CHIP_I18N_KEYS[chip.id] || "explain");
@@ -74,7 +88,7 @@ export function ActionChips({
             title={chip.description}
             onClick={() => onSelect(chip.id)}
             className={cn(
-              "group inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium tracking-wide transition-all duration-150 select-none",
+              "group inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium tracking-wide transition-all duration-150 select-none",
               "focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60",
               "disabled:cursor-not-allowed disabled:opacity-40",
               isActive
@@ -105,7 +119,7 @@ export function ActionChips({
               }
             }}
             className={cn(
-              "group inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium tracking-wide transition-all duration-150 select-none",
+              "group inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium tracking-wide transition-all duration-150 select-none",
               "focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60",
               "disabled:cursor-not-allowed disabled:opacity-40",
               isActive

@@ -115,7 +115,16 @@ pub fn auto_insert(text: String) -> Result<(), String> {
     if text.trim().is_empty() {
         return Err("Cannot insert an empty response".into());
     }
+
+    // Keep the user's clipboard intact after the target application receives Ctrl+V.
+    // Refuse to replace it when Windows cannot read the original value safely.
+    let previous = read_text().ok_or_else(|| {
+        "Cannot safely auto-insert while the system clipboard is unavailable".to_string()
+    })?;
     write_text(text)?;
-    thread::sleep(Duration::from_millis(120));
-    send_ctrl_key(0x56)
+    thread::sleep(Duration::from_millis(200));
+    let paste_result = send_ctrl_key(0x56);
+    thread::sleep(Duration::from_millis(180));
+    let _ = write_text(previous);
+    paste_result
 }

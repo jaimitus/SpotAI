@@ -1,24 +1,18 @@
 import path from "path";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
-import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
-import { viteSingleFile } from "vite-plugin-singlefile";
+import { defineConfig } from "vitest/config";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Single source of truth for the app version: src-tauri/tauri.conf.json.
-// The Tauri bundle, the MSI/NSIS installers and the in-app UI all read it
-// from here (src/lib/version.ts consumes the injected define).
+// Mirror the __APP_VERSION__ define from vite.config.ts so unit tests that
+// import src/lib/version.ts resolve the same single source of truth.
 const tauriConfig = JSON.parse(
   readFileSync(path.resolve(__dirname, "src-tauri/tauri.conf.json"), "utf-8"),
 ) as { version?: string };
 
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss(), viteSingleFile()],
   define: {
     __APP_VERSION__: JSON.stringify(tauriConfig.version ?? "0.0.0"),
   },
@@ -26,5 +20,9 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "src"),
     },
+  },
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.ts"],
   },
 });
