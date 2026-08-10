@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Auto-generated from git history with `npm run changelog:all`.
 
+## [Unreleased]
+
+## 📚 Documentation
+
+- fix latest.json example formatting in README (v1.3.1)
+- update latest.json example in README to v1.3.1
+- add CHANGELOG entry for v1.3.1
+
+
 ## [v1.3.1] - 2026-08-10
 
 ### ✨ New Features
@@ -88,49 +97,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v1.1.0] - 2026-08-08
 
-## ✨ New Features
-
-- localize prompt templates for Spanish and German, add GitHub repo link and v1.1.0 version badges
-- Release v1.1.0 - Multi-language support (EN, ES, DE) and Custom Prompt Action buttons
-
-## 🐛 Bug Fixes
-
-- launch external browser natively on Windows when clicking GitHub repository links
-
-## 📚 Documentation
-
-- update README.md for v1.1.0 with new features and Buy Me A Coffee badge
-
-## 🧹 Maintenance
-
-- remove binaries from root and add *.exe, *.msi, *.zip to .gitignore
-
-
-## [v1.0.0] - 2026-08-08
-
-## 📦 Other
-
-- release: v1.0.0 initial release of SpotAI Spotlight Launcher
-
-## [v1.1.0] - 2026-08-08
-
 ### 🌐 Multi-Language i18n Support
-
 - Full interface translation in **English (Default)**, **Español** and **Deutsch**.
 - Action prompt templates automatically adapt to the active display language.
 
 ### 🎛️ Custom Prompt Action Buttons
-
 - Create and manage custom shortcut action buttons with your own prompt templates in Settings.
 
 ### 🔗 Native External Browser Integration
-
 - Opens external links and the GitHub repository in the default system browser.
 
 ## [v1.0.0] - 2026-08-08
 
 ### 🎉 Initial Release
-
 - ⚡ Instant spotlight access via the global `Alt + Space` hotkey.
 - 📋 Automatic clipboard context capture for selected text or code.
 - 🦙 Ollama local and network server support.
@@ -138,3 +117,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🎯 Native auto-insert of AI responses into the active app with `Ctrl + Enter`.
 - 🔒 Encrypted API key storage via the Windows Credential Manager.
 - 🔄 Signed automatic updates through the Tauri updater.
+

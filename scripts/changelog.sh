@@ -6,8 +6,9 @@
 #      with the changes since the previous tag. Used locally (`npm run changelog`)
 #      and by the Release workflow to fill the GitHub release body.
 #   2. --changelog mode: walks every git tag and writes a versioned CHANGELOG.md
-#      (Keep a Changelog style, with dates), including an "Unreleased" section
-#      and the untagged legacy versions (v1.0.0, v1.1.0).
+#      (Keep a Changelog style, with dates), including an "Unreleased" section.
+#      v1.0.0/v1.1.0 have curated sections; a legacy fallback only fires when
+#      those tags are absent (shallow clones), so they never duplicate.
 #
 # Commit message conventions (case-insensitive prefixes):
 #   feat:        new feature
@@ -172,6 +173,31 @@ EOF
 - 🧪 **Unit Tests & CI**: Rust + Vitest tests and GitHub Actions CI/release workflows.
 EOF
       ;;
+    v1.1.0)
+      cat <<'EOF'
+### 🌐 Multi-Language i18n Support
+- Full interface translation in **English (Default)**, **Español** and **Deutsch**.
+- Action prompt templates automatically adapt to the active display language.
+
+### 🎛️ Custom Prompt Action Buttons
+- Create and manage custom shortcut action buttons with your own prompt templates in Settings.
+
+### 🔗 Native External Browser Integration
+- Opens external links and the GitHub repository in the default system browser.
+EOF
+      ;;
+    v1.0.0)
+      cat <<'EOF'
+### 🎉 Initial Release
+- ⚡ Instant spotlight access via the global `Alt + Space` hotkey.
+- 📋 Automatic clipboard context capture for selected text or code.
+- 🦙 Ollama local and network server support.
+- ☁️ Multi-provider cloud AI: OpenAI, Anthropic, Groq, DeepSeek, LM Studio and any OpenAI-compatible endpoint.
+- 🎯 Native auto-insert of AI responses into the active app with `Ctrl + Enter`.
+- 🔒 Encrypted API key storage via the Windows Credential Manager.
+- 🔄 Signed automatic updates through the Tauri updater.
+EOF
+      ;;
     *) return 1 ;;
   esac
 }
@@ -243,33 +269,41 @@ generate_changelog() {
       fi
     done
 
-    # --- Legacy versions without tags (kept in sync with README history) ---
-    echo "## [v1.1.0] - 2026-08-08"
-    echo ""
-    echo "### 🌐 Multi-Language i18n Support"
-    echo ""
-    echo "- Full interface translation in **English (Default)**, **Español** and **Deutsch**."
-    echo "- Action prompt templates automatically adapt to the active display language."
-    echo ""
-    echo "### 🎛️ Custom Prompt Action Buttons"
-    echo ""
-    echo "- Create and manage custom shortcut action buttons with your own prompt templates in Settings."
-    echo ""
-    echo "### 🔗 Native External Browser Integration"
-    echo ""
-    echo "- Opens external links and the GitHub repository in the default system browser."
-    echo ""
-    echo "## [v1.0.0] - 2026-08-08"
-    echo ""
-    echo "### 🎉 Initial Release"
-    echo ""
-    echo "- ⚡ Instant spotlight access via the global \`Alt + Space\` hotkey."
-    echo "- 📋 Automatic clipboard context capture for selected text or code."
-    echo "- 🦙 Ollama local and network server support."
-    echo "- ☁️ Multi-provider cloud AI: OpenAI, Anthropic, Groq, DeepSeek, LM Studio and any OpenAI-compatible endpoint."
-    echo "- 🎯 Native auto-insert of AI responses into the active app with \`Ctrl + Enter\`."
-    echo "- 🔒 Encrypted API key storage via the Windows Credential Manager."
-    echo "- 🔄 Signed automatic updates through the Tauri updater."
+    # --- Legacy versions without tags ---
+    # v1.1.0 and v1.0.0 now exist as real tags, so the tag loop above already
+    # writes their curated sections. These fallbacks only fire when the tags
+    # are absent (e.g. a shallow clone), keeping the CHANGELOG free of
+    # duplicated sections when they are present.
+    if ! git rev-parse -q --verify refs/tags/v1.1.0 >/dev/null 2>&1; then
+      echo "## [v1.1.0] - 2026-08-08"
+      echo ""
+      echo "### 🌐 Multi-Language i18n Support"
+      echo ""
+      echo "- Full interface translation in **English (Default)**, **Español** and **Deutsch**."
+      echo "- Action prompt templates automatically adapt to the active display language."
+      echo ""
+      echo "### 🎛️ Custom Prompt Action Buttons"
+      echo ""
+      echo "- Create and manage custom shortcut action buttons with your own prompt templates in Settings."
+      echo ""
+      echo "### 🔗 Native External Browser Integration"
+      echo ""
+      echo "- Opens external links and the GitHub repository in the default system browser."
+      echo ""
+    fi
+    if ! git rev-parse -q --verify refs/tags/v1.0.0 >/dev/null 2>&1; then
+      echo "## [v1.0.0] - 2026-08-08"
+      echo ""
+      echo "### 🎉 Initial Release"
+      echo ""
+      echo "- ⚡ Instant spotlight access via the global \`Alt + Space\` hotkey."
+      echo "- 📋 Automatic clipboard context capture for selected text or code."
+      echo "- 🦙 Ollama local and network server support."
+      echo "- ☁️ Multi-provider cloud AI: OpenAI, Anthropic, Groq, DeepSeek, LM Studio and any OpenAI-compatible endpoint."
+      echo "- 🎯 Native auto-insert of AI responses into the active app with \`Ctrl + Enter\`."
+      echo "- 🔒 Encrypted API key storage via the Windows Credential Manager."
+      echo "- 🔄 Signed automatic updates through the Tauri updater."
+    fi
   } > "$out"
 
   echo "Wrote $out from $(grep -c . <<< "$tags" || echo 0) tags."
