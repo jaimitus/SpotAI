@@ -154,6 +154,7 @@ pub fn run() {
             commands::stop_voice_capture,
             commands::voice_state,
             commands::set_voice_engine,
+            commands::set_voice_language,
             commands::list_microphones,
             commands::set_selected_microphone,
             commands::get_whisper_status,

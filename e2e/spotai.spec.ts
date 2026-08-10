@@ -100,7 +100,7 @@ function buildTauriMock(
   const callbacks = new Map();
   const listeners = new Map();
   let callbackId = 0;
-  let voiceState = { recording: false, engine: "${engine}", selectedMic: "" };
+  let voiceState = { recording: false, engine: "${engine}", selectedMic: "", language: null };
   window.__TAURI_INTERNALS__ = {
     metadata: {
       currentWindow: { label: "main" },
@@ -172,6 +172,17 @@ function buildTauriMock(
             ...voiceState,
             engine: args.engine === "whisper" ? "whisper" : "native",
           };
+          return null;
+        case "set_voice_language":
+          // Mirror the Rust backend: pinning a language stores it ("auto" or
+          // empty clears it back to auto-detection).
+          {
+            const lang = String(args.language || "auto").trim().toLowerCase();
+            voiceState = {
+              ...voiceState,
+              language: !lang || lang === "auto" ? null : lang,
+            };
+          }
           return null;
         case "transcribe_voice_wav":
           return null;
@@ -245,7 +256,9 @@ test("settings lists microphones and persists the chosen one", async ({ page }) 
   await page.getByTitle("Settings (Ctrl+,)").click();
 
   const voiceSection = page.locator("section", { hasText: "Speech-to-text engine" });
-  const micSelect = voiceSection.locator("select");
+  // The voice section now has two selects: the recognition-language picker
+  // (first) and the microphone picker (second, inside the cyan box).
+  const micSelect = voiceSection.locator("select").nth(1);
 
   // The mocked backend reports two microphones, the first marked as default.
   await expect(micSelect.locator("option")).toHaveCount(3); // default + 2 devices
@@ -266,23 +279,28 @@ test("settings lists microphones and persists the chosen one", async ({ page }) 
   expect(stored.selectedMic).toBe("Headset Mic");
 });
 
-test("the selected voice engine and microphone are synced to the backend at startup", async ({ page }) => {
-  // A user who picked Whisper and a specific mic in Settings (persisted across
-  // restarts). The mock starts on the NATIVE engine with no mic, exactly like
-  // the Rust backend does on every launch — so if the boot sync works, the
-  // backend must report BOTH preferences without the user touching Settings.
+test("the selected voice engine, microphone and language are synced to the backend at startup", async ({ page }) => {
+  // A user who picked Whisper, a specific mic and Spanish recognition in
+  // Settings (persisted across restarts). The mock starts on the NATIVE engine
+  // with no mic and auto language, exactly like the Rust backend does on every
+  // launch — so if the boot sync works, the backend must report ALL THREE
+  // preferences without the user touching Settings.
   await page.addInitScript(() => {
     localStorage.setItem(
       "spotai.settings.v1",
-      JSON.stringify({ voiceEngine: "whisper", selectedMic: "Headset Mic" }),
+      JSON.stringify({
+        voiceEngine: "whisper",
+        selectedMic: "Headset Mic",
+        voiceLanguage: "es",
+      }),
     );
   });
   await page.addInitScript(buildTauriMock("native"));
   await page.goto("/");
 
   // The boot effect pushes the persisted preferences to the backend: voice_state
-  // must report whisper + the chosen mic. expect.poll retries because the sync
-  // is async and the settings load happens on mount.
+  // must report whisper + the chosen mic + the pinned language. expect.poll
+  // retries because the sync is async and the settings load happens on mount.
   await expect
     .poll(async () => {
       const state = await page.evaluate(() =>
@@ -292,6 +310,7 @@ test("the selected voice engine and microphone are synced to the backend at star
               recording: boolean;
               engine: string;
               selectedMic: string;
+              language: string | null;
             }>;
           };
         }).__TAURI_INTERNALS__.invoke("voice_state"),
@@ -302,6 +321,7 @@ test("the selected voice engine and microphone are synced to the backend at star
       recording: false,
       engine: "whisper",
       selectedMic: "Headset Mic",
+      language: "es",
     });
 });
 

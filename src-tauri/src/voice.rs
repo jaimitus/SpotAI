@@ -81,6 +81,10 @@ pub struct VoiceState {
     /// Name of the microphone selected in Settings. When empty, the OS
     /// default input device is used.
     pub selected_mic: Mutex<Option<String>>,
+    /// Whisper recognition language code ("es", "de", …). When None, whisper
+    /// auto-detects the language from the audio (unreliable on the tiny model,
+    /// so Settings lets the user pin a language).
+    pub language: Mutex<Option<String>>,
     recording: AtomicBool,
     temp_dir: Mutex<Option<PathBuf>>,
     /// Channel to signal the recording thread to stop.
@@ -100,11 +104,13 @@ pub struct VoiceState {
 /// Snapshot of the voice capture state, used by the frontend to reconcile its
 /// UI with the backend after a start that raced with the Alt+V shortcut, a
 /// hung recognizer, or when the window is re-shown mid-capture.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceStatus {
     pub recording: bool,
     pub engine: VoiceEngine,
+    /// Whisper recognition language code currently pinned (None = auto).
+    pub language: Option<String>,
 }
 
 impl VoiceState {
@@ -112,6 +118,7 @@ impl VoiceState {
         Self {
             engine: Mutex::new(VoiceEngine::Native),
             selected_mic: Mutex::new(None),
+            language: Mutex::new(None),
             recording: AtomicBool::new(false),
             temp_dir: Mutex::new(None),
             stop_tx: Mutex::new(None),
@@ -132,6 +139,7 @@ pub fn voice_status(state: &VoiceState) -> VoiceStatus {
     VoiceStatus {
         recording: state.recording.load(Ordering::Acquire),
         engine: *state.engine.lock(),
+        language: state.language.lock().clone(),
     }
 }
 

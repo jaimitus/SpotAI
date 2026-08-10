@@ -237,10 +237,22 @@ export function loadSettings(): AppSettings {
     autostart: false,
     autoInsertQuickActions: true,
     voiceEngine: "native",
+    voiceLanguage: "auto",
   };
   try {
     const value = localStorage.getItem(SETTINGS_KEY);
-    return value ? { ...defaults, ...JSON.parse(value) } : defaults;
+    if (!value) return defaults;
+    const parsed = JSON.parse(value) as Partial<AppSettings>;
+    const merged = { ...defaults, ...parsed };
+    // Smart default for the recognition language: when the user has never
+    // pinned one, follow the UI language. Whisper's auto-detection on the tiny
+    // model tends to assume English and transcribe nonsense on other languages,
+    // so a Spanish UI user gets `-l es` without touching Settings. The explicit
+    // value wins once saved.
+    if (!parsed.voiceLanguage && merged.language && merged.language !== "en") {
+      merged.voiceLanguage = merged.language;
+    }
+    return merged;
   } catch {
     return defaults;
   }
@@ -340,12 +352,19 @@ export async function stopVoiceCapture(): Promise<VoiceCaptureResult> {
 /** Returns the backend's current capture state so the UI can reconcile (e.g.
  *  after a start that raced with the Alt+V shortcut or a hung recognizer). */
 export async function getVoiceState(): Promise<VoiceStateEvent> {
-  if (!isTauri()) return { recording: false, engine: "native" };
+  if (!isTauri()) {
+    return { recording: false, engine: "native", language: null };
+  }
   return invoke<VoiceStateEvent>("voice_state");
 }
 
 export async function setVoiceEngine(engine: string): Promise<void> {
   await invoke("set_voice_engine", { engine });
+}
+
+/** Pins the language Whisper transcribes in; "auto" lets it detect from audio. */
+export async function setVoiceLanguage(language: string): Promise<void> {
+  await invoke("set_voice_language", { language });
 }
 
 export async function listMicrophones(): Promise<MicDevice[]> {

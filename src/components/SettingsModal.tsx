@@ -11,6 +11,7 @@ import {
   Eye,
   EyeOff,
   Globe,
+  Languages,
   Loader2,
   Mic,
   Monitor,
@@ -48,6 +49,7 @@ import {
   isTauri,
   listMicrophones,
   setSelectedMicrophone,
+  setVoiceLanguage,
   listenWhisperProgress,
   ollamaDeleteModel,
   ollamaPullModel,
@@ -367,6 +369,12 @@ export function SettingsModal({
         await setSelectedMicrophone(updated.selectedMic || "");
       } catch {
         // Non-critical; falls back to the OS default until the next sync.
+      }
+      // Sync the Whisper recognition language to the Rust backend.
+      try {
+        await setVoiceLanguage(updated.voiceLanguage || "auto");
+      } catch {
+        // Non-critical; the backend will get the preference on next restart.
       }
       await saveApiKeys(keys);
       for (const [id, key] of Object.entries(pendingCustomKeys)) {
@@ -1071,6 +1079,43 @@ export function SettingsModal({
                   </kbd>{" "}
                   {t(currentLang, "voiceInputStatus")}
                 </p>
+
+                {/* Whisper recognition language (auto-detection on the tiny
+                    model often assumes English and transcribes nonsense, so
+                    the user can pin their language here) */}
+                <div className="space-y-2 rounded-xl border border-violet-500/20 bg-violet-500/[0.04] p-3.5">
+                  <span className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--pe-violet-strong)]">
+                    <Languages className="h-3.5 w-3.5" />
+                    {t(currentLang, "voiceLanguage")}
+                  </span>
+                  <select
+                    value={draft.voiceLanguage || "auto"}
+                    onChange={(e) => update("voiceLanguage", e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="auto" className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]">
+                      ✨ {t(currentLang, "voiceLangAuto")}
+                    </option>
+                    <option value="en" className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]">
+                      🇺🇸 English
+                    </option>
+                    <option value="es" className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]">
+                      🇪🇸 Español
+                    </option>
+                    <option value="de" className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]">
+                      🇩🇪 Deutsch
+                    </option>
+                    <option value="pt" className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]">
+                      🇵🇹 Português
+                    </option>
+                    <option value="fr" className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]">
+                      🇫🇷 Français
+                    </option>
+                  </select>
+                  <p className="text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                    {t(currentLang, "voiceLanguageDesc")}
+                  </p>
+                </div>
 
                 {/* Microphone permission warning (native recognizer blocked) */}
                 {micPermissionDenied && (

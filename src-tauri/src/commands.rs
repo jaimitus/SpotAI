@@ -667,6 +667,26 @@ pub fn set_voice_engine(
     Ok(())
 }
 
+/// Sets the language Whisper should transcribe in ("auto" = detect from the
+/// audio). The tiny multilingual model misdetects languages on short clips,
+/// so pinning a language (e.g. "es") makes dictation reliable.
+#[tauri::command]
+pub fn set_voice_language(
+    state: State<'_, voice::VoiceState>,
+    language: String,
+) -> Result<(), String> {
+    let trimmed = language.trim().to_ascii_lowercase();
+    // Only store codes whisper actually understands, so `voice_state` never
+    // reports a language that would be silently ignored at transcription time.
+    let known = matches!(trimmed.as_str(), "en" | "es" | "de" | "pt" | "fr");
+    *state.language.lock() = if trimmed.is_empty() || trimmed == "auto" || !known {
+        None
+    } else {
+        Some(trimmed)
+    };
+    Ok(())
+}
+
 /// Lists every available microphone so Settings can offer a device picker.
 #[tauri::command]
 pub fn list_microphones() -> Vec<voice::MicDevice> {
@@ -710,10 +730,16 @@ pub async fn install_whisper(
 /// Transcribes a recorded WAV file with whisper-cli and emits a
 /// `voice-transcribed` event with the result (or a descriptive error).
 #[tauri::command]
-pub async fn transcribe_voice_wav(app: AppHandle, path: String) -> Result<(), String> {
+pub async fn transcribe_voice_wav(
+    app: AppHandle,
+    state: State<'_, voice::VoiceState>,
+    path: String,
+) -> Result<(), String> {
     let app_for_thread = app.clone();
+    // Pin the recognition language chosen in Settings (None = auto-detect).
+    let language = state.language.lock().clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        whisper::transcribe(&app_for_thread, std::path::Path::new(&path))
+        whisper::transcribe(&app_for_thread, std::path::Path::new(&path), language.as_deref())
     })
     .await
     .map_err(|e| e.to_string())?;

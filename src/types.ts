@@ -112,6 +112,8 @@ export interface AppSettings {
   voiceEngine?: string;
   /** Name of the microphone chosen in Settings (empty = OS default). */
   selectedMic?: string;
+  /** Language Whisper transcribes in ("auto" = detect from the audio). */
+  voiceLanguage?: string;
 }
 
 export interface MicDevice {
@@ -170,6 +172,8 @@ export interface VoiceStatusEvent {
 export interface VoiceStateEvent {
   recording: boolean;
   engine: VoiceEngine;
+  /** Whisper recognition language currently pinned (null = auto). */
+  language?: string | null;
 }
 
 export interface VoiceStoppedEvent {

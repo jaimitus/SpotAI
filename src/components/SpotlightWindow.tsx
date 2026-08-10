@@ -81,6 +81,7 @@ import {
   setClipboardText,
   setSelectedMicrophone,
   setVoiceEngine,
+  setVoiceLanguage,
 } from "../lib/tauri";
 import type {
   ActionChipId,
@@ -822,6 +823,9 @@ export function SpotlightWindow() {
     if (isTauri()) {
       void setVoiceEngine(settings.voiceEngine || "native").catch(() => undefined);
       void setSelectedMicrophone(settings.selectedMic || "").catch(() => undefined);
+      // Also pin the recognition language so a restart never falls back to
+      // whisper's unreliable auto-detection (which tends to assume English).
+      void setVoiceLanguage(settings.voiceLanguage || "auto").catch(() => undefined);
     }
     void getApiKeyStatus().then((status) => {
       setHasCloudKeys(

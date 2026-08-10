@@ -184,6 +184,27 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
 
 // ── Transcription ────────────────────────────────────────────────────────────
 
+/// Maps a language preference from Settings to the whisper-cli `-l` flag.
+///
+/// `None` (or any unrecognised value) means **auto-detection**: whisper tries
+/// to guess the language from the audio, which the tiny model often gets wrong
+/// (it tends to assume English and then transcribes nonsense). Pinning a
+/// supported language bypasses detection entirely and gives dramatically
+/// better results.
+pub fn language_flag(language: Option<&str>) -> Option<&'static str> {
+    match language
+        .map(|lang| lang.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("en") => Some("en"),
+        Some("es") => Some("es"),
+        Some("de") => Some("de"),
+        Some("pt") => Some("pt"),
+        Some("fr") => Some("fr"),
+        _ => None,
+    }
+}
+
 /// Removes both the source WAV and the whisper JSON output once the
 /// transcription has finished (successfully or not). The recordings are
 /// temporary voice captures living in the temp dir: leaving them behind would
@@ -205,9 +226,17 @@ impl Drop for TranscriptionCleanup<'_> {
 
 /// Transcribes a WAV file with whisper-cli and returns the recognised text.
 ///
+/// `language` pins the recognition language when the user chose one in
+/// Settings (None = whisper auto-detects, which the tiny model often gets
+/// wrong).
+///
 /// The source WAV is a temporary capture artifact: it is deleted after the
 /// transcription (success or failure) so the temp dir cannot fill up.
-pub fn transcribe(app: &AppHandle, wav_path: &Path) -> Result<String, String> {
+pub fn transcribe(
+    app: &AppHandle,
+    wav_path: &Path,
+    language: Option<&str>,
+) -> Result<String, String> {
     // whisper-cli appends `.json` to the -of base path.
     let out_base = wav_path.with_extension("spotai_out");
     // whisper-cli appends the extension to the -of base path, so the JSON
@@ -233,7 +262,13 @@ pub fn transcribe(app: &AppHandle, wav_path: &Path) -> Result<String, String> {
         .arg("-m")
         .arg(&model)
         .arg("-f")
-        .arg(wav_path)
+        .arg(wav_path);
+    // Pin the recognition language when the user chose one in Settings;
+    // otherwise whisper auto-detects (often misdetects English).
+    if let Some(code) = language_flag(language) {
+        command.arg("-l").arg(code);
+    }
+    command
         .arg("-oj") // JSON output
         .arg("-np") // no console prints
         .arg("-of")
@@ -292,4 +327,27 @@ pub fn transcribe(app: &AppHandle, wav_path: &Path) -> Result<String, String> {
         return Err("No speech detected".into());
     }
     Ok(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn language_flag_maps_supported_codes_case_insensitively() {
+        for code in ["en", "es", "de", "pt", "fr"] {
+            assert_eq!(language_flag(Some(code)), Some(code));
+            assert_eq!(language_flag(Some(&code.to_ascii_uppercase())), Some(code));
+        }
+    }
+
+    #[test]
+    fn language_flag_falls_back_to_auto_detection_for_unknown_values() {
+        assert_eq!(language_flag(None), None);
+        assert_eq!(language_flag(Some("auto")), None);
+        assert_eq!(language_flag(Some("")), None);
+        assert_eq!(language_flag(Some("  ")), None);
+        // Unsupported language (e.g. Japanese): never guess, let whisper detect.
+        assert_eq!(language_flag(Some("ja")), None);
+    }
 }
