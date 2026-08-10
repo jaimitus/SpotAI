@@ -33,6 +33,41 @@ test("slash palette lists system actions and capture button is present", async (
   await expect(page.getByTitle("Capture screen region").last()).toBeVisible();
 });
 
+test("typing /theme + Enter directly toggles the theme without browsing the palette", async ({ page }) => {
+  await page.goto("/");
+  const textarea = page.locator("textarea").first();
+  const initial = await page.locator("html").getAttribute("data-theme");
+
+  // Type the exact keyword and press Enter — the command runs immediately.
+  await textarea.fill("/theme");
+  await page.keyboard.press("Enter");
+
+  // Playwright's expect auto-retries, so this assertion waits up to 5s for
+  // the React state update to propagate and flips the theme attribute.
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme", initial);
+  // The prompt is cleared so the palette closes.
+  await expect(textarea).toHaveValue("");
+});
+
+test("typing /new + Enter starts a new chat and clears the prompt", async ({ page }) => {
+  await page.goto("/");
+  const textarea = page.locator("textarea").first();
+
+  await textarea.fill("/new");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(300);
+
+  await expect(textarea).toHaveValue("");
+});
+
+test("partial slash query like /cap still opens the fuzzy palette", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("textarea").first().fill("/cap");
+  // toBeVisible auto-retries, no need for an explicit wait — existing palette
+  // tests do the same.
+  await expect(page.getByText("Capture screen region", { exact: true })).toBeVisible();
+});
+
 test("input is ready; send stays disabled until a model is available", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("textarea").first()).toBeVisible();
