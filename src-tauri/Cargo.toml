@@ -39,6 +39,12 @@ base64 = "0.22"
 cpal = "0.15"
 hound = "3.5"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
+sqlite-vec = "0.1"
+text-splitter = { version = "0.13", features = ["markdown", "code"] }
+rayon = "1.10"
+chrono = "0.4"
+pdf-extract = "0.8"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_System_Com", "Media_SpeechRecognition", "Foundation"] }

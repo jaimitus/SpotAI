@@ -900,6 +900,57 @@ export function SettingsModal({
                     />
                   </Field>
                 </div>
+                {/* Advanced Ollama/LLM parameters */}
+                <div className="grid grid-cols-3 gap-3 mt-3">
+                  <Field
+                    label={`${t(currentLang, "topP")} | ${(draft.topP ?? 0.9).toFixed(2)}`}
+                    hint="Nucleus sampling"
+                  >
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={draft.topP ?? 0.9}
+                      onChange={(e) =>
+                        update("topP", parseFloat(e.target.value))
+                      }
+                      className="w-full accent-cyan-400"
+                    />
+                  </Field>
+                  <Field
+                    label={`${t(currentLang, "topK")} | ${draft.topK ?? 40}`}
+                    hint="Top-K sampling"
+                  >
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      step={1}
+                      value={draft.topK ?? 40}
+                      onChange={(e) =>
+                        update("topK", parseInt(e.target.value || "40", 10))
+                      }
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field
+                    label={`${t(currentLang, "repeatPenalty")} | ${(draft.repeatPenalty ?? 1.1).toFixed(2)}`}
+                    hint="Repetition penalty"
+                  >
+                    <input
+                      type="range"
+                      min={1}
+                      max={2}
+                      step={0.05}
+                      value={draft.repeatPenalty ?? 1.1}
+                      onChange={(e) =>
+                        update("repeatPenalty", parseFloat(e.target.value))
+                      }
+                      className="w-full accent-cyan-400"
+                    />
+                  </Field>
+                </div>
               </section>
 
               {/* Shortcut info */}

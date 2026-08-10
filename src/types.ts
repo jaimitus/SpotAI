@@ -33,6 +33,15 @@ export interface PromptRequest {
   /** Optional pasted screenshot as a data URL ("data:<mime>;base64,..."). */
   imageDataUrl?: string | null;
   requestId: string;
+  /** Advanced sampling parameters for better control over generation */
+  topP?: number | null;
+  topK?: number | null;
+  repeatPenalty?: number | null;
+  seed?: number | null;
+  /** Context window size (num_ctx in Ollama) - crucial for local models */
+  numCtx?: number | null;
+  /** Maximum tokens to predict (num_predict in Ollama) */
+  numPredict?: number | null;
 }
 
 export interface TokenEvent {
@@ -101,6 +110,15 @@ export interface AppSettings {
   systemPrompt: string;
   temperature: number;
   maxTokens: number;
+  /** Advanced sampling parameters for Ollama/LLM generation */
+  topP?: number;
+  topK?: number;
+  repeatPenalty?: number;
+  seed?: number;
+  /** Context window size (num_ctx in Ollama) - crucial for local models */
+  numCtx?: number;
+  /** Maximum tokens to predict (num_predict in Ollama) */
+  numPredict?: number;
   customActions: CustomAction[];
   customProviders: CustomProvider[];
   promptTemplates?: PromptTemplate[];
@@ -247,3 +265,12 @@ export interface CapturedImage {
 }
 
 export type ContextKind = "empty" | "text" | "code" | "error" | "json" | "url";
+
+/** Shell command for CLI injection feature */
+export interface ShellCommand {
+  command: string;
+  shell: string;
+  args: string[];
+  description: string;
+  safetyLevel: 'safe' | 'caution' | 'dangerous';
+}

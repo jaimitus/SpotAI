@@ -77,6 +77,12 @@ import {
   openExternalUrl,
   registerShortcut,
   resolveHost,
+  ragGetStats,
+  ragIndexFiles,
+  ragQuery,
+  removeRagDocument as ragRemoveDocument,
+  analyzeCommandSafety,
+  executeShellCommand,
   saveSettings,
   setClipboardText,
   setSelectedMicrophone,
@@ -96,6 +102,7 @@ import type {
   ModelInfo,
   PromptTemplate,
   QuickActionPayload,
+  ShellCommand,
   SystemActionId,
   VoiceTranscribedEvent,
 } from "../types";
@@ -239,6 +246,8 @@ export function SpotlightWindow() {
   const [recordingDuration, setRecordingDuration] = useState<number | null>(null);
   const [transcribing, setTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [showRagPanel, setShowRagPanel] = useState(false);
+  const [pendingCommand, setPendingCommand] = useState<ShellCommand | null>(null);
 
   const currentLang = settings.language || "en";
 

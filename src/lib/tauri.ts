@@ -174,6 +174,12 @@ export async function sendPromptStream(request: PromptRequest): Promise<void> {
     history: request.history ?? null,
     imageDataUrl: request.imageDataUrl ?? null,
     requestId: request.requestId ?? null,
+    topP: request.topP ?? null,
+    topK: request.topK ?? null,
+    repeatPenalty: request.repeatPenalty ?? null,
+    seed: request.seed ?? null,
+    numCtx: request.numCtx ?? null,
+    numPredict: request.numPredict ?? null,
   });
 }
 
@@ -231,6 +237,12 @@ export function loadSettings(): AppSettings {
     systemPrompt: "",
     temperature: 0.7,
     maxTokens: 4096,
+    topP: 0.9,
+    topK: 40,
+    repeatPenalty: 1.1,
+    seed: undefined,
+    numCtx: 4096,
+    numPredict: 512,
     customActions: [],
     customProviders: [],
     promptTemplates: DEFAULT_PROMPT_TEMPLATES,
@@ -448,4 +460,75 @@ export async function listenWhisperProgress(
   return listen<WhisperProgressEvent>("whisper-progress", (e) =>
     handler(e.payload),
   );
+}
+
+// ── RAG (Pregunta a tus Archivos) ────────────────────────────────────────
+
+export interface RagStats {
+  documentCount: number;
+  chunkCount: number;
+}
+
+export interface RagSearchResult {
+  chunkId: string;
+  documentPath: string;
+  content: string;
+  similarity: number;
+  metadata: {
+    fileType: string;
+    fileSize: number;
+    createdAt: number;
+    lineStart?: number;
+    lineEnd?: number;
+  };
+}
+
+export interface RagQueryResult {
+  results: RagSearchResult[];
+  query: string;
+  totalChunksSearched: number;
+}
+
+/** Index multiple files for RAG semantic search */
+export async function ragIndexFiles(filePaths: string[]): Promise<Record<string, number>> {
+  return invoke<Record<string, number>>("rag_index_files", { filePaths });
+}
+
+/** Query indexed documents with semantic search */
+export async function ragQuery(query: string, topK?: number): Promise<RagQueryResult> {
+  return invoke<RagQueryResult>("rag_query", { query, topK: topK ?? null });
+}
+
+/** Get statistics about indexed documents */
+export async function ragGetStats(): Promise<RagStats> {
+  return invoke<RagStats>("rag_get_stats");
+}
+
+/** Remove a document from the RAG index */
+export async function ragRemoveDocument(docPath: string): Promise<void> {
+  return invoke("rag_remove_document", { docPath });
+}
+
+/** Analyze command safety for CLI injection */
+export interface ShellCommand {
+  command: string;
+  shell: string;
+  args: string[];
+  description: string;
+  safetyLevel: 'safe' | 'caution' | 'dangerous';
+}
+
+export async function analyzeCommandSafety(command: string): Promise<ShellCommand> {
+  return invoke("analyze_command_safety", { command });
+}
+
+export async function executeShellCommand(cmd: ShellCommand): Promise<string> {
+  return invoke("execute_shell_command", { cmd });
+}
+
+/** Check if a file type is supported for indexing */
+export function isSupportedFile(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  const supported = ['pdf', 'txt', 'md', 'rs', 'py', 'toml', 'json', 'js', 'ts'];
+  return ext ? supported.includes(ext) : false;
 }

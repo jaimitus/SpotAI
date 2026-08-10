@@ -3,6 +3,7 @@
 mod ai;
 mod commands;
 mod native_input;
+mod rag;
 mod secure_store;
 mod voice;
 mod whisper;
@@ -120,6 +121,7 @@ pub fn run() {
         .manage(commands::ShortcutRegistration::default())
         .manage(voice::VoiceState::new())
         .manage(whisper::WhisperState::new())
+        .manage(rag::RagState::new())
         .manage(AiHttpClient::new().expect("failed to create the shared HTTP client"))
         .invoke_handler(tauri::generate_handler![
             commands::get_clipboard_text,
@@ -161,6 +163,10 @@ pub fn run() {
             commands::install_whisper,
             commands::set_whisper_model,
             commands::transcribe_voice_wav,
+            commands::rag_index_files,
+            commands::rag_query,
+            commands::rag_get_stats,
+            commands::rag_remove_document,
         ])
         .setup(|app| {
             let shortcut_status = app.state::<commands::ShortcutRegistration>();
@@ -187,6 +193,14 @@ pub fn run() {
             if let Ok(data_dir) = app.path().app_data_dir() {
                 app.state::<whisper::WhisperState>()
                     .set_dir(data_dir.join("whisper"));
+                
+                // Initialize RAG database in app data dir
+                tauri::async_runtime::block_on(async {
+                    let rag_state = app.state::<rag::RagState>();
+                    if let Err(e) = rag_state.initialize(&data_dir).await {
+                        tracing::error!(%e, "Failed to initialize RAG database");
+                    }
+                });
             }
 
             let show_item =

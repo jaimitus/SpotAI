@@ -247,6 +247,15 @@ pub struct PromptRequest {
     /// A data URL ("data:<mime>;base64,...") for a vision-capable model.
     pub image_data_url: Option<String>,
     pub request_id: String,
+    /// Advanced sampling parameters for Ollama/LLM generation
+    pub top_p: Option<f32>,
+    pub top_k: Option<u32>,
+    pub repeat_penalty: Option<f32>,
+    pub seed: Option<u64>,
+    /// Context window size (num_ctx in Ollama) - crucial for local models
+    pub num_ctx: Option<u32>,
+    /// Maximum tokens to predict (num_predict in Ollama)
+    pub num_predict: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -512,11 +521,34 @@ async fn stream_ollama(
             last["images"] = json!([image.data]);
         }
     }
+    let mut options = json!({
+        "temperature": request.temperature.unwrap_or(0.7)
+    });
+    // Add advanced Ollama sampling parameters
+    if let Some(top_p) = request.top_p {
+        options["top_p"] = json!(top_p);
+    }
+    if let Some(top_k) = request.top_k {
+        options["top_k"] = json!(top_k);
+    }
+    if let Some(repeat_penalty) = request.repeat_penalty {
+        options["repeat_penalty"] = json!(repeat_penalty);
+    }
+    if let Some(seed) = request.seed {
+        options["seed"] = json!(seed);
+    }
+    // Context window and prediction limits - critical for local models
+    if let Some(num_ctx) = request.num_ctx {
+        options["num_ctx"] = json!(num_ctx);
+    }
+    if let Some(num_predict) = request.num_predict {
+        options["num_predict"] = json!(num_predict);
+    }
     let body = json!({
         "model": request.model,
         "stream": true,
         "messages": messages,
-        "options": { "temperature": request.temperature.unwrap_or(0.7) }
+        "options": options
     });
     let response = send_cancellable(
         client.post(format!("{host}/api/chat")).json(&body),
@@ -641,6 +673,19 @@ async fn stream_openai_compatible(
     });
     if !reasoning_model {
         body["temperature"] = json!(request.temperature.unwrap_or(0.7));
+        // Add advanced sampling parameters for OpenAI-compatible endpoints
+        if let Some(top_p) = request.top_p {
+            body["top_p"] = json!(top_p);
+        }
+        if let Some(top_k) = request.top_k {
+            // top_k is not standard in OpenAI API but some providers support it
+            body["top_k"] = json!(top_k);
+        }
+        if let Some(repeat_penalty) = request.repeat_penalty {
+            // frequency_penalty ranges from -2 to 2, map repeat_penalty (1-2) appropriately
+            let freq_penalty = ((repeat_penalty - 1.0) * 2.0).min(2.0).max(-2.0);
+            body["frequency_penalty"] = json!(freq_penalty);
+        }
     }
     if let Some(max_tokens) = request.max_tokens {
         let key = if reasoning_model {
@@ -742,7 +787,7 @@ async fn stream_anthropic(
     if let Some(last) = messages.last_mut() {
         *last = anthropic_user_message(user, image);
     }
-    let body = json!({
+    let mut body = json!({
         "model": request.model,
         "max_tokens": request.max_tokens.unwrap_or(4096),
         "stream": true,
@@ -750,6 +795,17 @@ async fn stream_anthropic(
         "system": system,
         "messages": messages
     });
+    // Add advanced sampling parameters for Anthropic
+    if let Some(top_p) = request.top_p {
+        body["top_p"] = json!(top_p);
+    }
+    if let Some(top_k) = request.top_k {
+        body["top_k"] = json!(top_k);
+    }
+    // Anthropic uses repetition_penalty directly (1-2 range)
+    if let Some(repeat_penalty) = request.repeat_penalty {
+        body["repetition_penalty"] = json!(repeat_penalty.min(2.0).max(1.0));
+    }
     let response = send_cancellable(
         client
             .post("https://api.anthropic.com/v1/messages")

@@ -7,7 +7,7 @@ use crate::ai::providers::{
     OllamaPsModel, PromptRequest, ProviderError, DEFAULT_LMSTUDIO_HOST, DEFAULT_OLLAMA_HOST,
 };
 use crate::ai::stream::ActiveStream;
-use crate::{native_input, secure_store, voice, whisper};
+use crate::{native_input, rag, secure_store, voice, whisper};
 use arboard::Clipboard;
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -270,6 +270,12 @@ pub async fn send_prompt_stream(
     history: Option<Vec<ChatMessage>>,
     image_data_url: Option<String>,
     request_id: Option<String>,
+    top_p: Option<f32>,
+    top_k: Option<u32>,
+    repeat_penalty: Option<f32>,
+    seed: Option<u64>,
+    num_ctx: Option<u32>,
+    num_predict: Option<u32>,
 ) -> Result<(), String> {
     let resolved_key = match api_key.map(|key| key.trim().to_owned()) {
         Some(key) if !key.is_empty() => Some(key),
@@ -338,6 +344,12 @@ pub async fn send_prompt_stream(
             .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty()),
         request_id: resolved_request_id,
+        top_p,
+        top_k,
+        repeat_penalty,
+        seed,
+        num_ctx,
+        num_predict,
     };
 
     let cancel = active.begin();
@@ -782,4 +794,86 @@ pub fn open_external_url(url: String) -> Result<(), String> {
         let _ = url;
         Ok(())
     }
+}
+
+/// RAG: Index multiple files for semantic search
+#[tauri::command]
+pub async fn rag_index_files(
+    rag_state: tauri::State<'_, rag::RagState>,
+    file_paths: Vec<String>,
+) -> Result<std::collections::HashMap<String, usize>, String> {
+    let paths: Vec<std::path::PathBuf> = file_paths.iter().map(std::path::PathBuf::from).collect();
+    rag_state.index_files(&paths).await
+}
+
+/// RAG: Query indexed documents with semantic search
+#[tauri::command]
+pub async fn rag_query(
+    rag_state: tauri::State<'_, rag::RagState>,
+    query: String,
+    top_k: Option<usize>,
+) -> Result<rag::RagQueryResult, String> {
+    let top_k = top_k.unwrap_or(5);
+    rag_state.query(&query, top_k).await
+}
+
+/// RAG: Get statistics about indexed documents
+#[tauri::command]
+pub async fn rag_get_stats(
+    rag_state: tauri::State<'_, rag::RagState>,
+) -> Result<rag::RagStats, String> {
+    rag_state.get_stats().await
+}
+
+/// RAG: Remove a document from the index
+#[tauri::command]
+pub async fn rag_remove_document(
+    rag_state: tauri::State<'_, rag::RagState>,
+    doc_path: String,
+) -> Result<(), String> {
+    rag_state.remove_document(&doc_path).await
+}
+
+/// CLI Injection: Analyze command safety and generate shell command
+#[tauri::command]
+pub fn analyze_command_safety(command: String) -> Result<native_input::ShellCommand, String> {
+    let (safety_level, warnings) = native_input::SafetyLevel::analyze(&command);
+    
+    // Determine shell and arguments based on command type
+    let (shell, args, description) = if cfg!(target_os = "windows") {
+        if command.contains("powershell") || command.contains("Get-") || command.contains("Set-") {
+            ("powershell.exe".to_string(), vec!["-Command".to_string(), command.clone()], "PowerShell command".to_string())
+        } else {
+            ("cmd.exe".to_string(), vec!["/C".to_string(), command.clone()], "CMD command".to_string())
+        }
+    } else {
+        ("bash".to_string(), vec!["-c".to_string(), command.clone()], "Bash command".to_string())
+    };
+    
+    Ok(native_input::ShellCommand {
+        command,
+        shell,
+        args,
+        description,
+        safety_level,
+    })
+}
+
+/// CLI Injection: Execute command with user confirmation
+#[tauri::command]
+pub async fn execute_shell_command(
+    cmd: native_input::ShellCommand,
+) -> Result<String, String> {
+    // Block dangerous commands automatically
+    if cmd.safety_level == native_input::SafetyLevel::Dangerous {
+        return Err(format!(
+            "⚠️ Dangerous command blocked: {}\n\nThis command could cause irreversible damage to your system.",
+            cmd.command
+        ));
+    }
+    
+    // For caution-level commands, we require explicit confirmation (handled in frontend)
+    // The frontend should show a confirmation dialog before calling this
+    
+    native_input::execute_command(&cmd)
 }
