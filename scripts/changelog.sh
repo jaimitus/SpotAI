@@ -236,8 +236,9 @@ generate_changelog() {
     fi
 
     # --- One section per tag, newest first ---
-    # Note: the oldest tagged section includes pre-tag commits (full history),
-    # so untagged legacy versions are re-narrated below as their own sections.
+    # Note: the oldest tagged section includes pre-tag commits (full history).
+    # v1.1.0/v1.0.0 have their own curated sections here; the legacy block
+    # below only fires when those tags are absent (e.g. shallow clones).
     mapfile -t ALL_TAGS < <(printf '%s\n' "$tags")
     local n="${#ALL_TAGS[@]}"
     local i tag
