@@ -243,6 +243,8 @@ export const translations = {
     voiceNativeDesc: "Uses Windows built-in speech recognition (SAPI) — zero setup, works offline",
     voiceWhisperDesc: "Download Whisper model for more accurate transcription — requires ~75 MB",
     downloadWhisper: "Download Whisper model",
+    whisperModel: "Whisper model",
+    whisperModelDesc: "Larger models are more accurate but slower to transcribe",
     whisperDownloaded: "Whisper model ready",
     whisperDownloadFailed: "Download failed",
     whisperNotInstalled:
@@ -533,6 +535,8 @@ export const translations = {
     voiceNativeDesc: "Usa el reconocimiento de voz integrado de Windows — sin configuración, funciona sin conexión",
     voiceWhisperDesc: "Descarga el modelo Whisper para transcripción más precisa — requiere ~75 MB",
     downloadWhisper: "Descargar modelo Whisper",
+    whisperModel: "Modelo Whisper",
+    whisperModelDesc: "Los modelos más grandes son más precisos, pero más lentos al transcribir",
     whisperDownloaded: "Modelo Whisper listo",
     whisperDownloadFailed: "Descarga fallida",
     whisperNotInstalled:
@@ -824,6 +828,8 @@ export const translations = {
     voiceWhisperDesc:
       "Whisper-Modell für genauere Transkription herunterladen — erfordert ~75 MB",
     downloadWhisper: "Whisper-Modell herunterladen",
+    whisperModel: "Whisper-Modell",
+    whisperModelDesc: "Größere Modelle sind genauer, aber langsamer beim Transkribieren",
     whisperDownloaded: "Whisper-Modell bereit",
     whisperDownloadFailed: "Download fehlgeschlagen",
     whisperNotInstalled:
@@ -1130,6 +1136,8 @@ export const translations = {
     voiceWhisperDesc:
       "Descarregue o modelo Whisper para transcrição mais precisa — requer ~75 MB",
     downloadWhisper: "Descarregar modelo Whisper",
+    whisperModel: "Modelo Whisper",
+    whisperModelDesc: "Modelos maiores são mais precisos, mas mais lentos a transcrever",
     whisperDownloaded: "Modelo Whisper pronto",
     whisperDownloadFailed: "Download falhou",
     whisperNotInstalled:
@@ -1437,6 +1445,8 @@ export const translations = {
     voiceWhisperDesc:
       "Téléchargez le modèle Whisper pour une transcription plus précise — nécessite ~75 Mo",
     downloadWhisper: "Télécharger le modèle Whisper",
+    whisperModel: "Modèle Whisper",
+    whisperModelDesc: "Les modèles plus grands sont plus précis mais plus lents à transcrire",
     whisperDownloaded: "Modèle Whisper prêt",
     whisperDownloadFailed: "Échec du téléchargement",
     whisperNotInstalled:

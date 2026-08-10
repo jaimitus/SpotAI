@@ -101,6 +101,14 @@ function buildTauriMock(
   const listeners = new Map();
   let callbackId = 0;
   let voiceState = { recording: false, engine: "${engine}", selectedMic: "", language: null };
+  // Stateful whisper install: only the tiny model is downloaded initially.
+  let whisper = {
+    installed: true,
+    installing: false,
+    modelSize: 77718640,
+    activeModel: "tiny",
+    installedModels: [{ id: "tiny", size: 77718640 }],
+  };
   window.__TAURI_INTERNALS__ = {
     metadata: {
       currentWindow: { label: "main" },
@@ -114,7 +122,22 @@ function buildTauriMock(
     invoke: async (cmd, args = {}) => {
       switch (cmd) {
         case "get_whisper_status":
-          return { installed: true, installing: false, modelSize: 77718640 };
+          return whisper;
+        case "set_whisper_model":
+          // Mirror the Rust backend: switching only changes the active model id
+          // (no download); the panel shows the download button when the chosen
+          // model file is missing.
+          {
+            const id = String(args.model || "tiny").trim().toLowerCase();
+            const present = whisper.installedModels.find((m) => m.id === id);
+            whisper = {
+              ...whisper,
+              activeModel: id,
+              installed: Boolean(present),
+              modelSize: present ? present.size : 0,
+            };
+          }
+          return whisper;
         case "list_microphones":
           return [
             { id: "device:Microphone Array", name: "Microphone Array", isDefault: true },
@@ -233,6 +256,31 @@ test("whisper shows ready state instead of the download button when installed", 
   ).toHaveCount(0);
   // The installed model size (74.1 MB for 77718640 bytes) is displayed too.
   await expect(voiceSection.getByText("74.1 MB", { exact: true })).toBeVisible();
+});
+
+test("switching to an uninstalled Whisper model offers the download", async ({ page }) => {
+  await page.addInitScript(buildTauriMock());
+  await page.goto("/");
+  await page.getByTitle("Settings (Ctrl+,)").click();
+
+  const voiceSection = page.locator("section", { hasText: "Speech-to-text engine" });
+  // Switch the engine to Whisper to reveal the panel (tiny is downloaded in
+  // the mock, so it starts in the ready state).
+  await voiceSection.getByRole("switch").click();
+  await expect(voiceSection.getByText("Whisper model ready")).toBeVisible();
+
+  // The mock only has Tiny downloaded. Switching to Base must flip the panel
+  // to the download state — the switch itself never triggers a download.
+  await voiceSection.getByRole("button", { name: /Base/ }).click();
+  await expect(
+    voiceSection.getByRole("button", { name: "Download Whisper model", exact: true }),
+  ).toBeVisible();
+  await expect(voiceSection.getByText("Whisper model ready")).toHaveCount(0);
+
+  // Switching back to Tiny (already downloaded) restores the ready state
+  // instantly, without any download.
+  await voiceSection.getByRole("button", { name: /Tiny/ }).click();
+  await expect(voiceSection.getByText("Whisper model ready")).toBeVisible();
 });
 
 test("whisper without a download still offers the install button", async ({ page }) => {

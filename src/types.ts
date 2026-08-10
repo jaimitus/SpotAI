@@ -114,6 +114,8 @@ export interface AppSettings {
   selectedMic?: string;
   /** Language Whisper transcribes in ("auto" = detect from the audio). */
   voiceLanguage?: string;
+  /** Whisper model size selected in Settings ("tiny" | "base" | "small"). */
+  whisperModel?: string;
 }
 
 export interface MicDevice {
@@ -187,10 +189,20 @@ export interface VoiceTranscribedEvent {
   error?: string | null;
 }
 
+export interface WhisperModelStatus {
+  id: string;
+  size: number;
+}
+
 export interface WhisperStatus {
   installed: boolean;
   installing: boolean;
+  /** Size of the ACTIVE model file (0 when not downloaded). */
   modelSize: number;
+  /** Id of the active model ("tiny" | "base" | "small"). */
+  activeModel?: string;
+  /** Every model already downloaded, with its size. */
+  installedModels?: WhisperModelStatus[];
 }
 
 export interface WhisperProgressEvent {

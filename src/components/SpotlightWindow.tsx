@@ -82,6 +82,7 @@ import {
   setSelectedMicrophone,
   setVoiceEngine,
   setVoiceLanguage,
+  setWhisperModel,
 } from "../lib/tauri";
 import type {
   ActionChipId,
@@ -826,6 +827,9 @@ export function SpotlightWindow() {
       // Also pin the recognition language so a restart never falls back to
       // whisper's unreliable auto-detection (which tends to assume English).
       void setVoiceLanguage(settings.voiceLanguage || "auto").catch(() => undefined);
+      // And the chosen Whisper model size (tiny/base/small). This only sets
+      // the active model id — it never triggers a download by itself.
+      void setWhisperModel(settings.whisperModel || "tiny").catch(() => undefined);
     }
     void getApiKeyStatus().then((status) => {
       setHasCloudKeys(

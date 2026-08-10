@@ -3,8 +3,9 @@
 //! The install flow fetches two artifacts into the app-data `whisper/` folder:
 //!   1. `whisper-bin-x64.zip` (official release) which contains
 //!      `Release/whisper-cli.exe` plus the ggml DLLs it links against.
-//!   2. `ggml-tiny.bin` (multilingual, ~75 MB) from the ggerganov/whisper.cpp
-//!      Hugging Face repo.
+//!   2. The active multilingual model (`ggml-{tiny|base|small}.bin`) from the
+//!      ggerganov/whisper.cpp Hugging Face repo — the user picks the size in
+//!      Settings (larger = more accurate but slower).
 //!
 //! Transcription runs `whisper-cli` as a subprocess with JSON output; the
 //! recognised text is returned to the caller.
@@ -16,15 +17,49 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 
 const BIN_URL: &str = "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip";
-const MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin";
-const MODEL_NAME: &str = "ggml-tiny.bin";
+
+/// A downloadable Whisper model file. The UI owns the human-readable labels
+/// and sizes; Rust only needs the id (selection) and the file (path + URL).
+pub struct WhisperModel {
+    pub id: &'static str,
+    pub file: &'static str,
+}
+
+pub const WHISPER_MODELS: &[WhisperModel] = &[
+    WhisperModel { id: "tiny", file: "ggml-tiny.bin" },
+    WhisperModel { id: "base", file: "ggml-base.bin" },
+    WhisperModel { id: "small", file: "ggml-small.bin" },
+];
+
+/// Resolves a model id ("tiny", "base", "small") case-insensitively.
+pub fn resolve_model(id: &str) -> Option<&'static WhisperModel> {
+    WHISPER_MODELS
+        .iter()
+        .find(|model| model.id.eq_ignore_ascii_case(id.trim()))
+}
+
+fn model_url(model: &WhisperModel) -> String {
+    format!(
+        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{}",
+        model.file
+    )
+}
 
 /// Shared install state managed by Tauri.
 pub struct WhisperState {
     /// Base directory for the whisper install.
     pub dir: Mutex<Option<PathBuf>>,
+    /// Id of the active model ("tiny" | "base" | "small").
+    model: Mutex<String>,
     /// True while a download is in progress.
     installing: AtomicBool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhisperModelStatus {
+    pub id: String,
+    pub size: u64,
 }
 
 #[derive(Serialize)]
@@ -32,13 +67,19 @@ pub struct WhisperState {
 pub struct WhisperStatus {
     pub installed: bool,
     pub installing: bool,
+    /// Size of the ACTIVE model file (0 when not downloaded).
     pub model_size: u64,
+    /// Id of the active model ("tiny" | "base" | "small").
+    pub active_model: String,
+    /// Every model already downloaded, with its size.
+    pub installed_models: Vec<WhisperModelStatus>,
 }
 
 impl WhisperState {
     pub fn new() -> Self {
         Self {
             dir: Mutex::new(None),
+            model: Mutex::new("tiny".to_string()),
             installing: AtomicBool::new(false),
         }
     }
@@ -69,8 +110,21 @@ fn exe_path(app: &AppHandle) -> PathBuf {
     install_dir(app).join("Release").join("whisper-cli.exe")
 }
 
+fn active_model_id(state: &WhisperState) -> &'static str {
+    let id = state.model.lock().clone();
+    resolve_model(&id).map(|m| m.id).unwrap_or("tiny")
+}
+
 fn model_path(app: &AppHandle) -> PathBuf {
-    install_dir(app).join(MODEL_NAME)
+    let file = app
+        .try_state::<WhisperState>()
+        .map(|state| {
+            resolve_model(&state.model.lock().clone())
+                .map(|m| m.file)
+                .unwrap_or("ggml-tiny.bin")
+        })
+        .unwrap_or("ggml-tiny.bin");
+    install_dir(app).join(file)
 }
 
 // ── Status ───────────────────────────────────────────────────────────────────
@@ -80,10 +134,26 @@ pub fn is_installed(app: &AppHandle) -> bool {
 }
 
 pub fn status(app: &AppHandle, state: &WhisperState) -> WhisperStatus {
+    let installed_models = WHISPER_MODELS
+        .iter()
+        .filter_map(|model| {
+            let size = std::fs::metadata(install_dir(app).join(model.file))
+                .ok()?
+                .len();
+            Some(WhisperModelStatus {
+                id: model.id.to_string(),
+                size,
+            })
+        })
+        .collect();
     WhisperStatus {
         installed: is_installed(app),
         installing: state.installing.load(Ordering::Relaxed),
-        model_size: std::fs::metadata(model_path(app)).map(|m| m.len()).unwrap_or(0),
+        model_size: std::fs::metadata(model_path(app))
+            .map(|m| m.len())
+            .unwrap_or(0),
+        active_model: active_model_id(state).to_string(),
+        installed_models,
     }
 }
 
@@ -107,20 +177,36 @@ pub async fn install(app: AppHandle, state: &WhisperState) -> Result<(), String>
     let dir = install_dir(&app);
     std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create whisper folder: {e}"))?;
 
-    // 1) Whisper binary zip.
-    let zip_path = dir.join("whisper-bin.zip");
-    download(&app, BIN_URL, &zip_path, "binary").await?;
-    extract_zip(&zip_path, &dir).map_err(|e| format!("Could not extract whisper binary: {e}"))?;
-    let _ = std::fs::remove_file(&zip_path);
+    // 1) Whisper binary zip — only when missing (switching models reuses it).
+    if !exe_path(&app).exists() {
+        let zip_path = dir.join("whisper-bin.zip");
+        download(&app, BIN_URL, &zip_path, "binary").await?;
+        extract_zip(&zip_path, &dir).map_err(|e| format!("Could not extract whisper binary: {e}"))?;
+        let _ = std::fs::remove_file(&zip_path);
+    }
 
-    // 2) Multilingual model.
-    let model = model_path(&app);
-    download(&app, MODEL_URL, &model, "model").await?;
+    // 2) The ACTIVE multilingual model.
+    let model = resolve_model(&active_model_id(state))
+        .expect("the active model id is always one of the known models");
+    download(&app, &model_url(model), &model_path(&app), "model").await?;
 
     let _ = app.emit(
         "whisper-status",
         serde_json::json!({ "installed": true, "installing": false }),
     );
+    Ok(())
+}
+
+/// Switches the active Whisper model ("tiny" / "base" / "small"). Fast: it
+/// never downloads — if the chosen model file is not installed yet, the status
+/// reports `installed: false` and the Settings panel offers the download.
+pub fn set_model(state: &WhisperState, model_id: &str) -> Result<(), String> {
+    let Some(model) = resolve_model(model_id) else {
+        return Err(format!(
+            "Unknown Whisper model: \"{model_id}\". Use tiny, base or small."
+        ));
+    };
+    *state.model.lock() = model.id.to_string();
     Ok(())
 }
 
@@ -349,5 +435,20 @@ mod tests {
         assert_eq!(language_flag(Some("  ")), None);
         // Unsupported language (e.g. Japanese): never guess, let whisper detect.
         assert_eq!(language_flag(Some("ja")), None);
+    }
+
+    #[test]
+    fn resolve_model_matches_known_ids_case_insensitively() {
+        assert_eq!(resolve_model("tiny").map(|m| m.id), Some("tiny"));
+        assert_eq!(resolve_model("BASE").map(|m| m.id), Some("base"));
+        assert_eq!(resolve_model("Small").map(|m| m.id), Some("small"));
+        assert_eq!(resolve_model(" base ").map(|m| m.id), Some("base"));
+    }
+
+    #[test]
+    fn resolve_model_rejects_unknown_ids() {
+        assert!(resolve_model("huge").is_none());
+        assert!(resolve_model("").is_none());
+        assert!(resolve_model("  ").is_none());
     }
 }

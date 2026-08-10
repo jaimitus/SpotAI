@@ -48,6 +48,9 @@ import {
   installWhisper,
   isTauri,
   listMicrophones,
+  setWhisperModel,
+  WHISPER_MODELS,
+  type WhisperModelId,
   setSelectedMicrophone,
   setVoiceLanguage,
   listenWhisperProgress,
@@ -155,6 +158,8 @@ export function SettingsModal({
     installed: false,
     installing: false,
     modelSize: 0,
+    activeModel: "tiny",
+    installedModels: [],
   });
   const [whisperProgress, setWhisperProgress] = useState<WhisperProgressEvent | null>(null);
   const [whisperError, setWhisperError] = useState<string | null>(null);
@@ -301,6 +306,21 @@ export function SettingsModal({
     }
   };
 
+  // Switch the active Whisper model. Fast: the backend only changes the model
+  // id, so the panel immediately reflects whether that model is downloaded
+  // (ready) or still needs the download button.
+  const handleWhisperModelChange = async (model: WhisperModelId) => {
+    update("whisperModel", model);
+    setWhisperError(null);
+    try {
+      const status = await setWhisperModel(model);
+      setWhisperStatus(status);
+      setWhisperProgress(null);
+    } catch (cause) {
+      setWhisperError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
   // Live-preview the theme while the modal is open (like the language picker),
   // and restore the saved theme if the modal is closed/cancelled. When the
   // draft is "system", follow the OS color scheme live too.
@@ -373,6 +393,12 @@ export function SettingsModal({
       // Sync the Whisper recognition language to the Rust backend.
       try {
         await setVoiceLanguage(updated.voiceLanguage || "auto");
+      } catch {
+        // Non-critical; the backend will get the preference on next restart.
+      }
+      // Sync the chosen Whisper model size to the Rust backend.
+      try {
+        await setWhisperModel(updated.whisperModel || "tiny");
       } catch {
         // Non-critical; the backend will get the preference on next restart.
       }
@@ -1211,6 +1237,41 @@ export function SettingsModal({
                 {/* Whisper install status / download */}
                 {draft.voiceEngine === "whisper" && (
                   <div className="space-y-2 rounded-xl border border-violet-500/20 bg-violet-500/[0.04] p-3.5">
+                    {/* Model picker: bigger models transcribe more accurately */}
+                    <div className="space-y-2">
+                      <span className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--pe-violet-strong)]">
+                        <Cpu className="h-3.5 w-3.5" />
+                        {t(currentLang, "whisperModel")}
+                      </span>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {WHISPER_MODELS.map((model) => (
+                          <button
+                            key={model.id}
+                            type="button"
+                            onClick={() => void handleWhisperModelChange(model.id)}
+                            disabled={whisperStatus.installing || !!whisperProgress}
+                            title={`${model.label} · ${model.sizeMb} MB`}
+                            className={cn(
+                              "rounded-lg border px-2 py-1.5 text-left transition select-none",
+                              (draft.whisperModel || "tiny") === model.id
+                                ? "border-violet-400/40 bg-violet-400/10 text-[var(--pe-violet-strong)]"
+                                : "border-[var(--pe-border)] bg-[var(--pe-input)] text-[var(--pe-text-soft)] hover:bg-[var(--pe-hover)]",
+                            )}
+                          >
+                            <span className="block text-[11px] font-medium">
+                              {model.label}
+                            </span>
+                            <span className="block text-[9px] text-[var(--pe-text-muted)]">
+                              {model.sizeMb} MB
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                        {t(currentLang, "whisperModelDesc")}
+                      </p>
+                    </div>
+
                     {whisperStatus.installing || whisperProgress ? (
                       <>
                         <div className="flex items-center gap-2 text-[11px] text-[var(--pe-violet-strong)]">
@@ -1255,6 +1316,11 @@ export function SettingsModal({
                         <div className="flex items-center gap-2 text-[11px] text-[var(--pe-emerald-strong)]">
                           <Check className="h-3.5 w-3.5" />
                           {t(currentLang, "whisperDownloaded")}
+                          <span className="font-medium">
+                            {WHISPER_MODELS.find(
+                              (m) => m.id === (whisperStatus.activeModel || "tiny"),
+                            )?.label ?? "Tiny"}
+                          </span>
                           <span className="font-mono text-[10px] text-[var(--pe-text-muted)]">
                             {formatBytes(whisperStatus.modelSize)}
                           </span>

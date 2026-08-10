@@ -718,13 +718,27 @@ pub fn get_whisper_status(
     whisper::status(&app, &state)
 }
 
-/// Downloads the whisper-cli binary and model (emits `whisper-progress`).
+/// Downloads the whisper-cli binary and the ACTIVE model (emits
+/// `whisper-progress`). The binary is reused when switching models.
 #[tauri::command]
 pub async fn install_whisper(
     app: AppHandle,
     state: State<'_, whisper::WhisperState>,
 ) -> Result<(), String> {
     whisper::install(app, state.inner()).await
+}
+
+/// Switches the active Whisper model ("tiny" / "base" / "small"). Fast — it
+/// never downloads; when the chosen model file is missing the returned status
+/// reports `installed: false` so the Settings panel can offer the download.
+#[tauri::command]
+pub fn set_whisper_model(
+    app: AppHandle,
+    state: State<'_, whisper::WhisperState>,
+    model: String,
+) -> Result<whisper::WhisperStatus, String> {
+    whisper::set_model(&state, &model)?;
+    Ok(whisper::status(&app, &state))
 }
 
 /// Transcribes a recorded WAV file with whisper-cli and emits a

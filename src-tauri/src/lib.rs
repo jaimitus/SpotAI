@@ -159,6 +159,7 @@ pub fn run() {
             commands::set_selected_microphone,
             commands::get_whisper_status,
             commands::install_whisper,
+            commands::set_whisper_model,
             commands::transcribe_voice_wav,
         ])
         .setup(|app| {

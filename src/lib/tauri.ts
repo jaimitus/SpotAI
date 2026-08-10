@@ -238,6 +238,7 @@ export function loadSettings(): AppSettings {
     autoInsertQuickActions: true,
     voiceEngine: "native",
     voiceLanguage: "auto",
+    whisperModel: "tiny",
   };
   try {
     const value = localStorage.getItem(SETTINGS_KEY);
@@ -402,15 +403,36 @@ export async function listenVoiceTranscribed(
 
 // ── Whisper.cpp ──────────────────────────────────────────────────────────
 
+/** The downloadable Whisper models, smallest to largest (larger = better). */
+export const WHISPER_MODELS = [
+  { id: "tiny", label: "Tiny", sizeMb: 75 },
+  { id: "base", label: "Base", sizeMb: 145 },
+  { id: "small", label: "Small", sizeMb: 466 },
+] as const;
+
+export type WhisperModelId = (typeof WHISPER_MODELS)[number]["id"];
+
 export async function getWhisperStatus(): Promise<WhisperStatus> {
   if (!isTauri()) {
-    return { installed: false, installing: false, modelSize: 0 };
+    return {
+      installed: false,
+      installing: false,
+      modelSize: 0,
+      activeModel: "tiny",
+      installedModels: [],
+    };
   }
   return invoke<WhisperStatus>("get_whisper_status");
 }
 
 export async function installWhisper(): Promise<void> {
   await invoke("install_whisper");
+}
+
+/** Switches the active Whisper model and returns the fresh status (no download —
+ *  the panel shows the download button when the chosen model file is missing). */
+export async function setWhisperModel(model: string): Promise<WhisperStatus> {
+  return invoke<WhisperStatus>("set_whisper_model", { model });
 }
 
 /** Transcribes a recorded WAV with whisper-cli; the result arrives as a
