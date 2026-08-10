@@ -171,17 +171,18 @@ Download the latest version from [GitHub Releases](https://github.com/jaimitus/S
    The app checks `https://github.com/jaimitus/SpotAI/releases/latest/download/latest.json` on startup, so that file must exist as a release asset. Two ways to get it:
    - **Recommended:** use [`tauri-action`](https://github.com/tauri-apps/tauri-action) in the workflow — it builds, uploads the installers + `.sig` files and generates `latest.json` automatically.
    - **Manual:** upload the installers and their `.sig` files from `src-tauri/target/release/bundle/{msi,nsis}/`, then create `latest.json` with the static format and upload it too:
-     ```json      {
-        "version": "1.3.1",
-        "notes": "Release notes",
-        "pub_date": "2026-08-10T12:26:02Z",
-        "platforms": {
-          "windows-x86_64": {
-            "signature": "<content of the .sig file>",
-            "url": "https://github.com/jaimitus/SpotAI/releases/download/v1.3.1/SpotAI_1.3.1_x64-setup.exe"
-          }
-        }
-      }
+     ```json
+     {
+       "version": "1.3.1",
+       "notes": "Release notes",
+       "pub_date": "2026-08-10T12:26:02Z",
+       "platforms": {
+         "windows-x86_64": {
+           "signature": "<content of the .sig file>",
+           "url": "https://github.com/jaimitus/SpotAI/releases/download/v1.3.1/SpotAI_1.3.1_x64-setup.exe"
+         }
+       }
+     }
      ```
 
 ---
