@@ -106,6 +106,17 @@ EOF
 - 🔁 **Startup Sync E2E**: Playwright tests verify the selected Whisper engine *and* microphone are pushed to the backend on boot, reproducing the lost-engine bug exactly.
 EOF
       ;;
+    v1.3.4)
+      cat <<'EOF'
+### ✨ New Features
+- 🎚️ **Recognition Language Setting**: Whisper now transcribes in the language you pin (**Auto / English / Español / Deutsch / Português / Français**) instead of relying on its unreliable auto-detection, which on the tiny model tends to assume English and produce nonsense on other languages. When nothing is pinned, the app defaults to your **interface language** automatically — a Spanish UI user gets Spanish dictation without touching Settings.
+- 📦 **Whisper Model Size Selector**: Choose **Tiny (~75 MB)**, **Base (~145 MB)** or **Small (~466 MB)** right in the download panel. Bigger models are noticeably more accurate on non-English speech. Switching only downloads the model you pick — the binary is shared and already-downloaded sizes switch instantly.
+### 🧪 Tests
+- 🧩 New Rust tests cover the model-id resolution and the language→`-l` flag mapping; new E2E tests verify the engine/mic/language startup sync and the model-switch flow (an uninstalled model shows the download button, a downloaded one shows ready instantly).
+### 📚 Documentation
+- 📖 The README Voice section now documents the model picker and the recognition language (tip: pick **Base/Small + Español** for Spanish dictation), with screenshots of the Base panel and the transcribed result.
+EOF
+      ;;
     v1.3.1)
       cat <<'EOF'
 ### ✨ New Features
