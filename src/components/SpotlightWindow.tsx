@@ -44,7 +44,7 @@ import { t } from "../lib/i18n";
 import { resolveTheme, subscribeSystemTheme } from "../lib/theme";
 import type { ThemePreference } from "../types";
 import { buildActionPrompt } from "../lib/prompts";
-import { buildSlashActions, type SlashAction } from "../lib/slash";
+import { buildSlashActions, getSlashQuery, type SlashAction } from "../lib/slash";
 import { APP_VERSION } from "../lib/version";
 import { PhysicalSize } from "@tauri-apps/api/dpi";
 import type { Update } from "@tauri-apps/plugin-updater";
@@ -904,6 +904,10 @@ export function SpotlightWindow() {
     } else if (action.kind === "system" && action.systemId) {
       handleSystemAction(action.systemId);
     }
+    // Close the palette after running a command (also covers direct keyword
+    // execution like "/theme" or "/settings" which do not clear the input).
+    setPromptValue("");
+    setSlashIndex(0);
   };
 
   // Dedicated global shortcuts (Ctrl+Shift+T/R/K) arrive as "quick-action"
@@ -1049,6 +1053,19 @@ export function SpotlightWindow() {
     }
   };
 
+  // Exact keyword match (e.g. "/new") wins over the highlighted palette row,
+  // so commands can be typed and run without browsing. Uses the live input
+  // value (not state) so the lookup always sees the very latest keystroke.
+  const resolveSlashAction = (value: string) => {
+    const query = getSlashQuery(value);
+    if (!query) return slashActions[slashIndex];
+    return (
+      slashActions.find((action) =>
+        (action.keywords ?? []).some((keyword) => keyword === query),
+      ) ?? slashActions[slashIndex]
+    );
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (slashOpen) {
       if (slashActions.length > 0) {
@@ -1063,13 +1080,13 @@ export function SpotlightWindow() {
         }
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
-          const action = slashActions[slashIndex];
+          const action = resolveSlashAction(e.currentTarget.value);
           if (action) pickSlashAction(action);
           return;
         }
         if (e.key === "Tab") {
           e.preventDefault();
-          const action = slashActions[slashIndex];
+          const action = resolveSlashAction(e.currentTarget.value);
           if (action) pickSlashAction(action);
           return;
         }

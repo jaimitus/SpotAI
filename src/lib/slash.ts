@@ -13,6 +13,8 @@ export interface SlashAction {
   label: string;
   icon: string;
   kind: "chip" | "custom" | "system" | "template";
+  /** Stable English keywords (`/new`, `/theme`, …) usable without the palette. */
+  keywords?: string[];
   chipId?: ActionChipId;
   custom?: CustomAction;
   template?: PromptTemplate;
@@ -49,6 +51,17 @@ export const SYSTEM_SLASH_ACTIONS: {
 ];
 
 /**
+ * Single source of truth for the slash query: everything after the leading "/"
+ * up to the first whitespace, lowercased ("/New text" → "new"). Both the
+ * palette builder and the keyboard handlers must derive the query this way so
+ * they never disagree.
+ */
+export function getSlashQuery(prompt: string): string {
+  const match = prompt.match(/^\/(\S*)/);
+  return match ? match[1].toLowerCase() : "";
+}
+
+/**
  * Builds the command palette entries for a prompt like "/sum ...". Returns an
  * empty list when the prompt does not start with "/". With no query, every
  * built-in chip, custom action, prompt template and system action is listed.
@@ -59,9 +72,8 @@ export function buildSlashActions(
   promptTemplates: PromptTemplate[],
   lang: Language,
 ): SlashAction[] {
-  const match = prompt.match(/^\/(\S*)/);
-  if (!match) return [];
-  const query = match[1].toLowerCase();
+  if (!prompt.startsWith("/")) return [];
+  const query = getSlashQuery(prompt);
 
   const all: SlashAction[] = [
     ...ACTION_CHIPS.map((chip) => ({
@@ -69,6 +81,7 @@ export function buildSlashActions(
       label: t(lang, CHIP_I18N_KEYS[chip.id]),
       icon: chip.icon,
       kind: "chip" as const,
+      keywords: [chip.id],
       chipId: chip.id,
     })),
     ...customActions.map((custom) => ({
@@ -90,13 +103,23 @@ export function buildSlashActions(
       label: system.label,
       icon: system.icon,
       kind: "system" as const,
+      keywords: [system.id],
       systemId: system.id,
     })),
   ];
   if (!query) return all;
-  return all.filter(
-    (action) =>
-      action.label.toLowerCase().includes(query) ||
-      action.key.toLowerCase().includes(query),
+
+  // Prioritize an exact keyword match (e.g. "/new") so the command can be
+  // typed and run without browsing the palette; partial label/key matches
+  // still work for the fuzzy palette search.
+  const exact = all.filter((action) =>
+    (action.keywords ?? []).some((keyword) => keyword === query),
   );
+  const fuzzy = all.filter(
+    (action) =>
+      !(action.keywords ?? []).some((keyword) => keyword === query) &&
+      (action.label.toLowerCase().includes(query) ||
+        action.key.toLowerCase().includes(query)),
+  );
+  return [...exact, ...fuzzy];
 }
