@@ -100,7 +100,7 @@ function buildTauriMock(
   const callbacks = new Map();
   const listeners = new Map();
   let callbackId = 0;
-  let voiceState = { recording: false, engine: "${engine}" };
+  let voiceState = { recording: false, engine: "${engine}", selectedMic: "" };
   window.__TAURI_INTERNALS__ = {
     metadata: {
       currentWindow: { label: "main" },
@@ -121,6 +121,13 @@ function buildTauriMock(
             { id: "device:Headset Mic", name: "Headset Mic", isDefault: false },
           ];
         case "set_selected_microphone":
+          // Mirror the Rust backend: the chosen mic is stored (empty clears
+          // it) and reported by voice_state from then on.
+          voiceState = {
+            ...voiceState,
+            selectedMic: String(args.mic || "").trim(),
+          };
+          return null;
         case "save_api_keys":
         case "delete_custom_api_key":
           return null;
@@ -259,35 +266,43 @@ test("settings lists microphones and persists the chosen one", async ({ page }) 
   expect(stored.selectedMic).toBe("Headset Mic");
 });
 
-test("the selected whisper engine is synced to the backend at startup", async ({ page }) => {
-  // A user who picked Whisper in Settings (persisted across restarts). The
-  // mock starts on the NATIVE engine exactly like the Rust backend does on
-  // every launch — so if the boot sync works, the engine must flip to whisper
-  // without the user touching Settings again.
+test("the selected voice engine and microphone are synced to the backend at startup", async ({ page }) => {
+  // A user who picked Whisper and a specific mic in Settings (persisted across
+  // restarts). The mock starts on the NATIVE engine with no mic, exactly like
+  // the Rust backend does on every launch — so if the boot sync works, the
+  // backend must report BOTH preferences without the user touching Settings.
   await page.addInitScript(() => {
     localStorage.setItem(
       "spotai.settings.v1",
-      JSON.stringify({ voiceEngine: "whisper" }),
+      JSON.stringify({ voiceEngine: "whisper", selectedMic: "Headset Mic" }),
     );
   });
   await page.addInitScript(buildTauriMock("native"));
   await page.goto("/");
 
-  // The boot effect pushes the persisted preference to the backend: voice_state
-  // must report whisper. expect.poll retries because the sync is async and the
-  // settings load happens on mount.
+  // The boot effect pushes the persisted preferences to the backend: voice_state
+  // must report whisper + the chosen mic. expect.poll retries because the sync
+  // is async and the settings load happens on mount.
   await expect
     .poll(async () => {
       const state = await page.evaluate(() =>
         (window as unknown as {
           __TAURI_INTERNALS__: {
-            invoke: (cmd: string) => Promise<{ engine: string }>;
+            invoke: (cmd: string) => Promise<{
+              recording: boolean;
+              engine: string;
+              selectedMic: string;
+            }>;
           };
         }).__TAURI_INTERNALS__.invoke("voice_state"),
       );
-      return state.engine;
+      return state;
     })
-    .toBe("whisper");
+    .toEqual({
+      recording: false,
+      engine: "whisper",
+      selectedMic: "Headset Mic",
+    });
 });
 
 test("microphone button starts recording when the whisper engine is configured", async ({ page }) => {
