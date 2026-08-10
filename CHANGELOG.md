@@ -7,14 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Auto-generated from git history with `npm run changelog:all`.
 
-## [Unreleased]
+## [v1.3.2] - 2026-08-10
 
-## 📚 Documentation
-
-- fix latest.json example formatting in README (v1.3.1)
-- update latest.json example in README to v1.3.1
-- add CHANGELOG entry for v1.3.1
-
+### 🐛 Bug Fixes
+- 🪟 **No More Console Window**: whisper-cli now spawns with `CREATE_NO_WINDOW`, so dictation no longer flashes an ugly cmd window while the WAV is transcribed.
+- ⏱️ **Dynamic Transcription Timeout**: The wait for Whisper now scales with the recording length (min 20s, cap 5min) instead of a fixed 9s that used to give up before local CPU transcription finished on longer captures. The native engine keeps its fast 9s.
+### ♻️ Refactors
+- 🧩 **Pure Helpers + Unit Tests**: `formatCaptureTime`/`formatDuration` (`src/lib/format.ts`) and `getVoiceTranscriptionTimeout` (`src/lib/voiceTimeout.ts`) were extracted from the spotlight UI into pure, tested modules — 11 new Vitest cases cover the locale mapping, mm:ss formatting and the timeout bounds (9s native / 20s floor / 5min cap).
 
 ## [v1.3.1] - 2026-08-10
 
