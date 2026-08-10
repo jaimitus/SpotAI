@@ -87,7 +87,12 @@ export function SlashMenu({
                           : "text-cyan-400",
                     )}
                   />
-                  <span className="truncate">{action.label}</span>
+                  <span className="min-w-0 truncate">{action.label}</span>
+                  {action.keywords?.[0] && (
+                    <kbd className="ml-auto shrink-0 rounded border border-[var(--pe-border)] bg-[var(--pe-hover)] px-1.5 py-0.5 font-mono text-[10px] leading-none text-[var(--pe-text-muted)]">
+                      /{action.keywords[0]}
+                    </kbd>
+                  )}
                 </button>
               );
             })}
