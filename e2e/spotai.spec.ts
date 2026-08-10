@@ -212,6 +212,13 @@ function buildTauriMock(
           return null;
         case "transcribe_voice_wav":
           return null;
+        case "rag_index_files":
+          // Mirror the Rust backend: returns a map of path -> indexed chunks.
+          return Object.fromEntries(
+            (Array.isArray(args.filePaths) ? args.filePaths : []).map((p) => [p, 2]),
+          );
+        case "rag_get_stats":
+          return { documentCount: 1, chunkCount: 2 };
         case "stop_voice_capture":
           if (${stopError}) {
             // The backend already stopped (e.g. Alt+V was released): recording
@@ -665,4 +672,75 @@ test("capture button is hidden without the Tauri runtime", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Incognito" }),
   ).toBeVisible();
+});
+
+test("dropping supported files into the RAG panel indexes them", async ({ page }) => {
+  await page.addInitScript(buildTauriMock());
+  await page.goto("/");
+
+  // Open the RAG panel from the toolbar (always available in browser mode).
+  await page.getByTitle("Ask your files").click();
+  await expect(page.getByText("Ask your files", { exact: true })).toBeVisible();
+
+  // Simulate an HTML5 drop (the browser-mode fallback path; inside the Tauri
+  // app the drop arrives through onDragDropEvent with real paths instead).
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(["# Hello"], "README.md", { type: "text/markdown" }));
+    const zone = document.querySelector("[data-testid='rag-drop-zone']");
+    zone?.dispatchEvent(
+      new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }),
+    );
+  });
+
+  // The mocked backend returns 1 document / 2 chunks, refreshed after indexing.
+  await expect(page.getByText(/1 documents/)).toBeVisible();
+});
+
+test("dropping a docx or csv file into the RAG panel indexes it", async ({ page }) => {
+  await page.addInitScript(buildTauriMock());
+  await page.goto("/");
+
+  await page.getByTitle("Ask your files").click();
+  await expect(page.getByText("Ask your files", { exact: true })).toBeVisible();
+
+  // Drop two newly-supported formats at once: .docx and .csv.
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(
+      new File(["hello from docx"], "informe.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
+    dt.items.add(new File(["name,role\nAna,engineer"], "data.csv", { type: "text/csv" }));
+    const zone = document.querySelector("[data-testid='rag-drop-zone']");
+    zone?.dispatchEvent(
+      new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }),
+    );
+  });
+
+  // Both files pass the frontend whitelist and reach rag_index_files.
+  await expect(page.getByText(/1 documents/)).toBeVisible();
+});
+
+test("dropping an unsupported file shows the unsupported-file error", async ({ page }) => {
+  await page.addInitScript(buildTauriMock());
+  await page.goto("/");
+
+  await page.getByTitle("Ask your files").click();
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(
+      new File(["x"], "notes.exe", {
+        type: "application/octet-stream",
+      }),
+    );
+    const zone = document.querySelector("[data-testid='rag-drop-zone']");
+    zone?.dispatchEvent(
+      new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }),
+    );
+  });
+
+  // .exe is not in the supported list → the panel shows the error message.
+  await expect(page.getByText("Unsupported file type", { exact: true })).toBeVisible();
 });

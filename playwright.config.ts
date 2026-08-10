@@ -8,7 +8,11 @@ import { defineConfig } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 30_000,
+  // The first tests in the file pay the vite dev-server cold compile (~25s
+  // on this machine), which can exceed 30s when the full suite competes for
+  // CPU with parallel workers. 60s keeps the suite green without masking
+  // real failures (assertions still auto-retry within the window).
+  timeout: 60_000,
   fullyParallel: true,
   use: {
     baseURL: "http://localhost:4199",

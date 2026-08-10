@@ -466,6 +466,32 @@ export async function listenWhisperProgress(
   );
 }
 
+/** Normalised file drag & drop delivered by Tauri at the window level. The
+ *  HTML5 drop event with `dataTransfer.files` never fires inside the desktop
+ *  app because `dragDropEnabled` (default) intercepts drops at the OS level;
+ *  `listenDragDrop` is the only reliable path there. */
+export interface DragDropEvent {
+  type: "enter" | "over" | "leave" | "drop";
+  paths: string[];
+}
+
+export async function listenDragDrop(
+  handler: (event: DragDropEvent) => void,
+): Promise<Unlisten> {
+  if (!isTauri()) return () => undefined;
+  const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+  return getCurrentWebview().onDragDropEvent((event) => {
+    const payload = event.payload;
+    if (payload.type === "enter" || payload.type === "over") {
+      handler({ type: "enter", paths: [] });
+    } else if (payload.type === "leave") {
+      handler({ type: "leave", paths: [] });
+    } else {
+      handler({ type: "drop", paths: payload.paths });
+    }
+  });
+}
+
 // ── RAG (Pregunta a tus Archivos) ────────────────────────────────────────
 
 export interface RagStats {
@@ -530,9 +556,23 @@ export async function executeShellCommand(cmd: ShellCommand): Promise<string> {
   return invoke("execute_shell_command", { cmd });
 }
 
-/** Check if a file type is supported for indexing */
+/**
+ * Check if a file type is supported for indexing. Kept in sync with
+ * `SUPPORTED_EXTENSIONS` in src-tauri/src/rag.rs.
+ */
 export function isSupportedFile(filename: string): boolean {
   const ext = filename.split('.').pop()?.toLowerCase();
-  const supported = ['pdf', 'txt', 'md', 'rs', 'py', 'toml', 'json', 'js', 'ts'];
+  const supported = [
+    // Documents
+    'pdf', 'docx', 'md', 'markdown', 'txt', 'rtf',
+    // Web & markup
+    'html', 'htm', 'xml', 'csv', 'json', 'yaml', 'yml', 'toml',
+    // Code
+    'rs', 'py', 'js', 'ts', 'jsx', 'tsx', 'sh', 'bat', 'ps1', 'css',
+    'scss', 'sql', 'go', 'java', 'c', 'h', 'cpp', 'hpp', 'rb', 'php',
+    'kt', 'swift',
+    // Config & logs
+    'ini', 'cfg', 'conf', 'log', 'env', 'properties', 'lock', 'gradle',
+  ];
   return ext ? supported.includes(ext) : false;
 }

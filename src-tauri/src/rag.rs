@@ -19,9 +19,20 @@ use std::sync::{Mutex, Once};
 use text_splitter::{ChunkConfig, MarkdownSplitter, TextSplitter};
 use tokio::sync::RwLock;
 
-/// Supported file extensions for indexing
-const SUPPORTED_EXTENSIONS: &[&str] =
-    &["pdf", "txt", "md", "rs", "py", "toml", "json", "js", "ts"];
+/// Supported file extensions for indexing. Kept in sync with
+/// `isSupportedFile` in src/lib/tauri.ts.
+const SUPPORTED_EXTENSIONS: &[&str] = &[
+    // Documents
+    "pdf", "docx", "md", "markdown", "txt", "rtf",
+    // Web & markup
+    "html", "htm", "xml", "csv", "json", "yaml", "yml", "toml",
+    // Code
+    "rs", "py", "js", "ts", "jsx", "tsx", "sh", "bat", "ps1", "css",
+    "scss", "sql", "go", "java", "c", "h", "cpp", "hpp", "rb", "php",
+    "kt", "swift",
+    // Config & logs
+    "ini", "cfg", "conf", "log", "env", "properties", "lock", "gradle",
+];
 
 /// Embedding dimensions used for hash-fallback vectors (Ollama's
 /// nomic-embed-text emits exactly 384 dims, so both paths stay compatible).
@@ -282,7 +293,9 @@ impl RagState {
             }
             // Code files use the plain splitter too: tree-sitter grammars would
             // add heavy per-language deps for marginal gains on this feature.
-            "rs" | "py" | "js" | "ts" => {
+            "rs" | "py" | "js" | "ts" | "jsx" | "tsx" | "go" | "java" | "c"
+            | "h" | "cpp" | "hpp" | "rb" | "php" | "kt" | "swift" | "sh"
+            | "bat" | "ps1" | "css" | "scss" | "sql" => {
                 let splitter = TextSplitter::new(base);
                 Ok(splitter
                     .chunks(text)
@@ -318,6 +331,118 @@ impl RagState {
             .map_err(|e| format!("Failed to extract PDF text: {e}"))
     }
 
+    /// Extract text from DOCX files: a ZIP container holding `word/document.xml`
+    /// with the paragraphs. Only the `<w:t>` text runs are kept, joined with
+    /// newlines per paragraph (`</w:p>`).
+    fn extract_docx_text(file_path: &Path) -> Result<String, String> {
+        use std::io::Read;
+
+        let file =
+            std::fs::File::open(file_path).map_err(|e| format!("Failed to open DOCX: {e}"))?;
+        let mut archive =
+            zip::ZipArchive::new(file).map_err(|e| format!("Failed to read DOCX archive: {e}"))?;
+        let mut document = archive
+            .by_name("word/document.xml")
+            .map_err(|e| format!("DOCX has no word/document.xml: {e}"))?;
+
+        let mut xml = String::new();
+        document
+            .read_to_string(&mut xml)
+            .map_err(|e| format!("Failed to read DOCX XML: {e}"))?;
+
+        // Split into paragraphs first, then pull the <w:t> runs out of each.
+        // (Checking for `</w:p>` right after `</w:t>` would never match: real
+        // DOCX always has `</w:r>` in between.)
+        let mut text = String::new();
+        for paragraph in xml.split("</w:p>") {
+            let mut line = String::new();
+            for run in paragraph.split("</w:t>") {
+                if let Some(open_idx) = run.rfind('>') {
+                    line.push_str(&run[open_idx + 1..]);
+                }
+            }
+            if !line.trim().is_empty() {
+                text.push_str(line.trim());
+                text.push('\n');
+            }
+        }
+        // Decode the XML entities Word emits for & < > " ' so the indexed
+        // text reads clean (the frontend shows raw chunks).
+        let decoded = text
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&nbsp;", " ");
+        Ok(decoded.trim().to_string())
+    }
+
+    /// Strip HTML/XML tags to readable text (keeps <br>, </p>, </div> and
+    /// </li> as line breaks so block layout survives) and drops <script>/
+    /// <style> bodies entirely so JS/CSS noise never pollutes the index.
+    fn extract_markup_text(html: &str) -> String {
+        let mut out = String::with_capacity(html.len());
+        let mut in_tag = false;
+        let mut tag = String::new();
+        let mut skip_depth = 0u32; // >0 while inside <script> or <style>
+        let mut chars = html.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '<' {
+                in_tag = true;
+                tag.clear();
+            } else if c == '>' && in_tag {
+                in_tag = false;
+                let lower = tag.trim().trim_end_matches('/').to_lowercase();
+                let tag_name = lower
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or_default()
+                    .trim_start_matches('/');
+                match lower.as_str() {
+                    "script" | "style" => skip_depth += 1,
+                    "/script" | "/style" => skip_depth = skip_depth.saturating_sub(1),
+                    _ => {}
+                }
+                if skip_depth == 0
+                    && matches!(
+                        tag_name,
+                        "br" | "p" | "div" | "li" | "tr" | "h1" | "h2" | "h3" | "h4"
+                            | "h5" | "h6" | "hr"
+                    )
+                {
+                    out.push('\n');
+                }
+            } else if in_tag {
+                tag.push(c);
+            } else if skip_depth > 0 {
+                // Ignore <script>/<style> bodies.
+            } else if c.is_control() {
+                out.push(' ');
+            } else {
+                out.push(c);
+            }
+        }
+        // Decode the common XML/HTML entities so the indexed text reads clean.
+        let decoded = out
+            .replace("&nbsp;", " ")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&");
+        // Collapse blank lines.
+        let mut cleaned = String::new();
+        for line in decoded.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                cleaned.push_str(trimmed);
+                cleaned.push('\n');
+            }
+        }
+        cleaned
+    }
+
     /// Index a single file
     pub async fn index_file(&self, file_path: &Path) -> Result<usize, String> {
         if !file_path.exists() {
@@ -334,11 +459,14 @@ impl RagState {
             return Err(format!("Unsupported file type: {ext}"));
         }
 
-        // Read file content with special handling for PDFs
-        let content = if ext == "pdf" {
-            self.extract_pdf_text(file_path)?
-        } else {
-            fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {e}"))?
+        // Read file content with special handling for binary/structured formats
+        let content = match ext.as_str() {
+            "pdf" => self.extract_pdf_text(file_path)?,
+            "docx" => Self::extract_docx_text(file_path)?,
+            "html" | "htm" | "xml" => Self::extract_markup_text(
+                &fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {e}"))?,
+            ),
+            _ => fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {e}"))?,
         };
 
         let file_size = content.len() as u64;
@@ -573,10 +701,109 @@ mod tests {
     async fn unsupported_file_is_rejected() {
         let state = RagState::new();
         let dir = test_dir("rag_unsupported");
-        let file = dir.join("notes.docx");
+        let file = dir.join("notes.exe");
         std::fs::write(&file, "not supported").expect("write");
         state.initialize(&dir).await.expect("init db");
         assert!(state.index_file(&file).await.is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn docx_is_extracted_and_indexed() {
+        use std::io::Write;
+
+        let state = RagState::new();
+        let dir = test_dir("rag_docx");
+        let file = dir.join("informe.docx");
+
+        // Build a minimal but valid DOCX: a ZIP containing word/document.xml
+        // with two paragraphs of multiple runs — the structure real Word files
+        // use (`</w:t></w:r></w:p>`), which must split into separate lines.
+        {
+            let out = std::fs::File::create(&file).expect("create docx");
+            let mut writer = zip::ZipWriter::new(out);
+            let options = zip::write::SimpleFileOptions::default();
+            writer
+                .start_file("word/document.xml", options)
+                .expect("start xml entry");
+            writer
+                .write_all(
+                    br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Hello from</w:t></w:r><w:r><w:t> DOCX</w:t></w:r></w:p>
+    <w:p><w:r><w:t>Second paragraph with</w:t></w:r><w:r><w:t> unique keyword</w:t></w:r></w:p>
+  </w:body>
+</w:document>"#,
+                )
+                .expect("write xml");
+            writer.finish().expect("finish zip");
+        }
+
+        state.initialize(&dir).await.expect("init db");
+        let count = state.index_file(&file).await.expect("index docx");
+        assert!(count >= 1, "docx should produce chunks");
+
+        // Both paragraphs must be found: the second one proves the run text
+        // after `</w:r>` survives paragraph splitting.
+        let results = state.search("hello", 5).await.expect("search hello");
+        assert!(!results.is_empty(), "search should find the first paragraph");
+        assert_eq!(results[0].document_path, file.to_string_lossy());
+
+        let results2 = state.search("unique keyword", 5).await.expect("search second");
+        assert!(
+            !results2.is_empty(),
+            "second paragraph text must be indexed too"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn html_is_cleaned_and_indexed() {
+        // The extractor must strip tags, decode entities and drop script/style
+        // bodies before the text ever reaches the index.
+        let cleaned = RagState::extract_markup_text(
+            "<!DOCTYPE html><html><body><h1>Title</h1><p>Some <b>bold</b> &amp; text.</p><script>bad()</script><style>.x{}</style></body></html>",
+        );
+        assert!(cleaned.contains("Title"), "h1 text kept");
+        assert!(cleaned.contains("bold"), "inline text kept");
+        assert!(cleaned.contains("&"), "&amp; decoded to &");
+        assert!(!cleaned.contains("bad"), "script body dropped");
+        assert!(!cleaned.contains(".x"), "style body dropped");
+        assert!(!cleaned.contains("<b>"), "tags stripped");
+
+        let state = RagState::new();
+        let dir = test_dir("rag_html");
+        let file = dir.join("page.html");
+        std::fs::write(
+            &file,
+            "<!DOCTYPE html><html><body><h1>Title</h1><p>Some <b>bold</b> text.</p></body></html>",
+        )
+        .expect("write");
+        state.initialize(&dir).await.expect("init db");
+        let count = state.index_file(&file).await.expect("index html");
+        assert!(count >= 1);
+        let results = state.search("bold", 5).await.expect("search");
+        assert!(!results.is_empty(), "html body text should be indexed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn csv_is_indexed_as_plain_text() {
+        let state = RagState::new();
+        let dir = test_dir("rag_csv");
+        let file = dir.join("data.csv");
+        std::fs::write(
+            &file,
+            "name,role,team\nAna,engineer,core\nLuis,designer,ux\n",
+        )
+        .expect("write");
+        state.initialize(&dir).await.expect("init db");
+        let count = state.index_file(&file).await.expect("index csv");
+        assert!(count >= 1);
+        let results = state.search("designer", 5).await.expect("search");
+        assert!(!results.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

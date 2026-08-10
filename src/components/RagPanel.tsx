@@ -4,6 +4,7 @@ import { t } from "../lib/i18n";
 import type { Language } from "../types";
 import {
   isSupportedFile,
+  listenDragDrop,
   ragGetStats,
   ragIndexFiles,
   ragQuery,
@@ -48,26 +49,18 @@ export function RagPanel({ lang, onClose }: RagPanelProps) {
     setIsDragging(false);
   }, []);
 
-  const handleDrop = useCallback(
-    async (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(false);
-
-      const files = Array.from(e.dataTransfer.files);
-      // Tauri exposes the native path on the File object (drag & drop only).
-      const tauriFile = (f: File) => (f as File & { path?: string }).path;
-      const supported = files.filter((f) => isSupportedFile(f.name));
+  /** Indexes the given file paths (Tauri absolute paths or plain names). */
+  const indexPaths = useCallback(
+    async (paths: string[]) => {
+      const supported = paths.filter((p) => isSupportedFile(p.split(/[\\/]/).pop() ?? p));
       if (supported.length === 0) {
         setError(t(lang, "ragUnsupportedFiles"));
         return;
       }
-
       setIsLoading(true);
       setError(null);
       try {
-        const filePaths = supported.map((f) => tauriFile(f) || f.name);
-        await ragIndexFiles(filePaths);
+        await ragIndexFiles(supported);
         setResults([]);
         loadStats();
       } catch (err) {
@@ -78,6 +71,47 @@ export function RagPanel({ lang, onClose }: RagPanelProps) {
     },
     [lang, loadStats],
   );
+
+  // Browser-mode fallback: HTML5 drag & drop. Inside the desktop app Tauri's
+  // `dragDropEnabled` (default) intercepts file drops at the OS/window level
+  // and delivers them through onDragDropEvent below — the HTML5 drop event
+  // never carries the files there.
+  const handleDrop = useCallback(
+    async (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+      const names = Array.from(e.dataTransfer.files).map((f) => f.name);
+      if (names.length > 0) await indexPaths(names);
+    },
+    [indexPaths],
+  );
+
+  // Native Tauri drag & drop: subscribe to the window-level drop events, which
+  // carry the real file paths, and drive the same highlight state as HTML5.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let mounted = true;
+    void listenDragDrop((event) => {
+      if (!mounted) return;
+      if (event.type === "enter" || event.type === "over") {
+        setIsDragging(true);
+      } else if (event.type === "leave") {
+        setIsDragging(false);
+      } else {
+        setIsDragging(false);
+        // A cancelled drop can carry no paths; treat it like a leave.
+        if (event.paths.length > 0) void indexPaths(event.paths);
+      }
+    }).then((dispose) => {
+      if (mounted) unlisten = dispose;
+      else dispose();
+    });
+    return () => {
+      mounted = false;
+      unlisten?.();
+    };
+  }, [indexPaths]);
 
   const handleQuery = useCallback(
     async (e: FormEvent) => {
@@ -139,6 +173,7 @@ export function RagPanel({ lang, onClose }: RagPanelProps) {
 
       {/* Drop zone */}
       <div
+        data-testid="rag-drop-zone"
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}

@@ -1,4 +1,4 @@
-# SpotAI v1.4.0 🚀
+# SpotAI v1.4.1 🚀
 
 > **The ultra-fast, Raycast-inspired AI Spotlight launcher for Windows.**  
 > Access local LLMs (Ollama, LM Studio) or cloud models (OpenAI, Anthropic, OpenRouter, DeepSeek) anywhere with a single shortcut (`Alt + Space`). Now with **RAG Local**, **Advanced Voice Recognition**, **CLI Injection**, and **Real Embeddings**.
@@ -8,7 +8,7 @@
 | ![SpotAI in light theme](SpotAI_UI.png) | ![SpotAI in dark theme](SpotAI_UI-dark.png) |
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-orange.svg?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/jaimitus)
-[![Release](https://img.shields.io/badge/version-1.4.0-cyan.svg)](https://github.com/jaimitus/SpotAI/releases)
+[![Release](https://img.shields.io/badge/version-1.4.1-cyan.svg)](https://github.com/jaimitus/SpotAI/releases)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-blue.svg)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Backend-Rust-orange.svg)](https://www.rust-lang.org)
 [![React](https://img.shields.io/badge/Frontend-React%2019-61dafb.svg)](https://reactjs.org)
@@ -37,7 +37,7 @@ Every version's changes — from v1.0.0 to the latest — live in the versioned 
 - 🚀 **Auto-start with Windows**: Launch SpotAI automatically when you log in (toggle in Settings → General).
 - 🔄 **Automatic Updates**: SpotAI checks GitHub Releases on startup and installs & restarts in one click (Tauri updater, signed).
 - 🎙️ **Advanced Voice Input**: Hold `Alt + V` (or press the mic button) to speak in **5 languages** (EN/ES/DE/PT/FR) with Whisper.cpp and real embeddings.
-- 📚 **RAG Local - Pregunta a tus Archivos**: Arrastra archivos (.pdf, .txt, .md, .rs, .py) y haz preguntas sobre tu código/documentación con búsqueda semántica vectorial local.
+- 📚 **RAG Local - Pregunta a tus Archivos**: Arrastra archivos y haz preguntas sobre tu código/documentación con búsqueda semántica vectorial local. Soporta **PDF, DOCX, TXT, MD, CSV, HTML/XML, JSON, YAML, TOML**, código (Rust, Python, JS/TS, Go, Java, C/C++, etc.) y ficheros de config/logs.
 - 💻 **CLI Injection (/exec)**: Genera comandos PowerShell/CMD inteligentes con confirmación de seguridad y ejecución directa en terminal.
 - 🔍 **Embeddings Reales**: Usa el modelo `nomic-embed-text` vía Ollama para representaciones semánticas precisas en lugar de hashes.
 - 📦 **Zero Heavy Dependencies**: Lightweight native Windows binary built with Tauri v2 and Rust.
@@ -128,8 +128,8 @@ In **Settings → Voice** you can adjust how Whisper transcribes:
 Download the latest version from [GitHub Releases](https://github.com/jaimitus/SpotAI/releases/latest):
 
 - 🗂️ **Portable (no install)**: `SpotAI-Portable.zip` — unzip and run `SpotAI.exe` directly, nothing to install (requires Windows 10/11 with WebView2).
-- ⚡ **Installer (NSIS)**: `SpotAI_1.4.0_x64-setup.exe`
-- 📦 **Installer (MSI)**: `SpotAI_1.4.0_x64_en-US.msi`
+- ⚡ **Installer (NSIS)**: `SpotAI_1.4.1_x64-setup.exe`
+- 📦 **Installer (MSI)**: `SpotAI_1.4.1_x64_en-US.msi`
 
 *(All assets — installers, portable zip, updater signatures and `latest.json` — are attached to the GitHub Release. Note: the portable build does not auto-update; use an installer if you want the built-in updater.)*
 
@@ -180,20 +180,20 @@ Download the latest version from [GitHub Releases](https://github.com/jaimitus/S
    ```
 3. **Publish a new GitHub Release** — just push the tag and the `release.yml` workflow does everything automatically (build, signing, **automatic publishing**, changelog update):
    ```bash
-   git tag v1.4.0 && git push origin v1.4.0
+   git tag v1.4.1 && git push origin v1.4.1
    ```
    The app checks `https://github.com/jaimitus/SpotAI/releases/latest/download/latest.json` on startup, so that file must exist as a release asset. Two ways to get it:
    - **Recommended:** use [`tauri-action`](https://github.com/tauri-apps/tauri-action) in the workflow — it builds, uploads the installers + `.sig` files and generates `latest.json` automatically.
    - **Manual:** upload the installers and their `.sig` files from `src-tauri/target/release/bundle/{msi,nsis}/`, then create `latest.json` with the static format and upload it too:
      ```json
      {
-       "version": "1.4.0",
+       "version": "1.4.1",
        "notes": "Release notes",
        "pub_date": "2026-08-10T12:26:02Z",
        "platforms": {
          "windows-x86_64": {
            "signature": "<content of the .sig file>",
-           "url": "https://github.com/jaimitus/SpotAI/releases/download/v1.4.0/SpotAI_1.4.0_x64-setup.exe"
+           "url": "https://github.com/jaimitus/SpotAI/releases/download/v1.4.1/SpotAI_1.4.1_x64-setup.exe"
          }
        }
      }
