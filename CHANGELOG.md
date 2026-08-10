@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Auto-generated from git history with `npm run changelog:all`.
 
+## [v1.3.0] - 2026-08-10
+
+## 📚 Documentation
+
+- add CHANGELOG entry for v1.2.3
+
+## 📦 Other
+
+- v1.3.0: voice input with SAPI + Whisper, E2E tests, README docs
+
 ## [v1.2.3] - 2026-08-10
 
 ### ✨ New Features
