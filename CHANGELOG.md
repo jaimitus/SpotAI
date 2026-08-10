@@ -9,12 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v1.4.1] - 2026-08-11
 
-### ✨ New Features
-- 📚 **Many More RAG Formats**: The "Ask your files" panel now indexes **DOCX** (real ZIP/XML parsing with paragraph awareness), **HTML/HTM/XML** (tag stripping, line breaks per block, `<script>`/`<style>` bodies dropped, entities decoded), **CSV**, RTF, plus a wide code roster (Go, Java, C/C++, Ruby, PHP, Kotlin, Swift, JSX/TSX, shell scripts) and config/log files (INI, YAML, TOML, LOG, ENV, PROPERTIES…). The supported-format hint is localized in all 5 languages.
-- 🖱️ **Native File Drag & Drop Fixed**: Dropping files onto the RAG panel now works in the desktop app. Tauri intercepts drops at the OS level (the HTML5 `drop` event never fired there), so the panel listens to `onDragDropEvent` for real file paths while keeping the HTML5 path as the browser-mode fallback.
-### 🧪 Tests
-- 🧩 New Rust tests build a real DOCX in-memory (two paragraphs with the exact `</w:t></w:r></w:p>` structure Word writes), verify HTML cleaning (tags stripped, entities decoded, script/style bodies excluded) and CSV indexing; the unsupported-format test now uses `.exe`.
-- 🧩 E2E tests cover a multi-file drop of DOCX + CSV and the unsupported `.exe` rejection; the Playwright timeout was raised to 60s to absorb the vite cold-compile startup.
+## 📚 Documentation
+
+- add CHANGELOG entry for v1.4.0
+
+## 📦 Other
+
+- feat(rag,drop): v1.4.1 - native file drag & drop fix + many more RAG formats
 
 ## [v1.4.0] - 2026-08-11
 
