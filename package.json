@@ -9,7 +9,8 @@
     "test": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri",
-    "changelog": "bash scripts/changelog.sh"
+    "changelog": "bash scripts/changelog.sh",
+    "changelog:all": "bash scripts/changelog.sh --changelog"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
