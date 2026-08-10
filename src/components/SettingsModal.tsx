@@ -841,51 +841,6 @@ export function SettingsModal({
                 </button>
               </section>
 
-              <section className="space-y-3">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
-                  <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
-                  <span>{t(currentLang, "systemPromptLabel")}</span>
-                </div>
-                <Field label={t(currentLang, "systemPromptHelp")}>
-                  <textarea
-                    value={draft.systemPrompt || ""}
-                    onChange={(e) => update("systemPrompt", e.target.value)}
-                    rows={3}
-                    className={cn(inputCls, "resize-none")}
-                    spellCheck={false}
-                  />
-                </Field>
-              </section>
-
-              {/* Data & backups */}
-              <section className="space-y-3">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
-                  <Download className="h-3.5 w-3.5 text-cyan-400" />
-                  <span>{t(currentLang, "exportSettings")}</span>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void handleExportSettings()}
-                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-3 py-2 text-[11px] text-[var(--pe-text)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text-strong)]"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    {t(currentLang, "exportSettings")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleImportSettings()}
-                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-3 py-2 text-[11px] text-[var(--pe-text)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text-strong)]"
-                  >
-                    <Upload className="h-3.5 w-3.5" />
-                    {t(currentLang, "importSettings")}
-                  </button>
-                </div>
-                <p className="text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
-                  {t(currentLang, "exportSettingsDesc")}
-                </p>
-              </section>
-
               {/* Updates */}
               <section className="space-y-3">
                 <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
@@ -930,6 +885,52 @@ export function SettingsModal({
                 {updateState === "failed" && (
                   <p className="text-[11px] text-[var(--pe-rose-strong)]">{t(currentLang, "updateFailed")}</p>
                 )}
+              </section>
+
+              {/* System prompt */}
+              <section className="space-y-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
+                  <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>{t(currentLang, "systemPromptLabel")}</span>
+                </div>
+                <Field label={t(currentLang, "systemPromptHelp")}>
+                  <textarea
+                    value={draft.systemPrompt || ""}
+                    onChange={(e) => update("systemPrompt", e.target.value)}
+                    rows={3}
+                    className={cn(inputCls, "resize-none")}
+                    spellCheck={false}
+                  />
+                </Field>
+              </section>
+
+              {/* Data & backups */}
+              <section className="space-y-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
+                  <Download className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>{t(currentLang, "exportSettings")}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleExportSettings()}
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-3 py-2 text-[11px] text-[var(--pe-text)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text-strong)]"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {t(currentLang, "exportSettings")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleImportSettings()}
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-3 py-2 text-[11px] text-[var(--pe-text)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text-strong)]"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    {t(currentLang, "importSettings")}
+                  </button>
+                </div>
+                <p className="text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                  {t(currentLang, "exportSettingsDesc")}
+                </p>
               </section>
 
               {/* Danger zone */}

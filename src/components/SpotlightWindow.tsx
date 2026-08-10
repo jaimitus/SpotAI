@@ -1305,7 +1305,7 @@ export function SpotlightWindow() {
               )}
             </div>
             {contextText ? (
-              <div className="max-h-20 overflow-y-auto whitespace-pre-wrap break-all pr-1 font-mono text-[11px] leading-relaxed text-[var(--pe-text-soft)]">
+              <div className="custom-scroll max-h-20 overflow-y-auto whitespace-pre-wrap break-all pr-1 font-mono text-[11px] leading-relaxed text-[var(--pe-text-soft)]">
                 {contextText}
               </div>
             ) : (

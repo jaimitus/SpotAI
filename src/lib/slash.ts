@@ -29,19 +29,23 @@ const CHIP_I18N_KEYS: Record<ActionChipId, TranslationKey> = {
   comment: "comment",
 };
 
-/** System actions available from the `/` palette. */
+/**
+ * System actions available from the `/` palette. Labels are intentionally
+ * fixed in English (Raycast/Slack style) so slash commands work the same in
+ * every UI language — the app is international, the commands are universal.
+ */
 export const SYSTEM_SLASH_ACTIONS: {
   id: SystemActionId;
-  labelKey: TranslationKey;
+  label: string;
   icon: string;
 }[] = [
-  { id: "new", labelKey: "systemNewChat", icon: "message" },
-  { id: "theme", labelKey: "systemToggleTheme", icon: "sparkles" },
-  { id: "capture", labelKey: "systemCapture", icon: "search" },
-  { id: "incognito", labelKey: "systemIncognito", icon: "wand" },
-  { id: "settings", labelKey: "systemSettings", icon: "wrench" },
-  { id: "hide", labelKey: "systemHide", icon: "list" },
-  { id: "clear", labelKey: "systemClear", icon: "code" },
+  { id: "new", label: "New chat", icon: "message" },
+  { id: "theme", label: "Toggle theme", icon: "sparkles" },
+  { id: "capture", label: "Capture screen region", icon: "search" },
+  { id: "incognito", label: "Toggle incognito", icon: "wand" },
+  { id: "settings", label: "Open settings", icon: "wrench" },
+  { id: "hide", label: "Hide window", icon: "list" },
+  { id: "clear", label: "Clear conversation", icon: "code" },
 ];
 
 /**
@@ -83,7 +87,7 @@ export function buildSlashActions(
     })),
     ...SYSTEM_SLASH_ACTIONS.map((system) => ({
       key: `system:${system.id}`,
-      label: t(lang, system.labelKey),
+      label: system.label,
       icon: system.icon,
       kind: "system" as const,
       systemId: system.id,
