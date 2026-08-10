@@ -54,7 +54,12 @@ export function SlashMenu({
           <div className="pb-1">
             {actions.map((action, index) => {
               const Icon = ICONS[action.icon] || Sparkles;
-              const isCustom = action.kind === "custom";
+              const accent =
+                action.kind === "custom" || action.kind === "template"
+                  ? "amber"
+                  : action.kind === "system"
+                    ? "violet"
+                    : "cyan";
               return (
                 <button
                   key={action.key}
@@ -64,16 +69,22 @@ export function SlashMenu({
                   className={cn(
                     "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors",
                     index === activeIndex
-                      ? isCustom
+                      ? accent === "amber"
                         ? "bg-amber-400/10 text-[var(--pe-amber-strong)]"
-                        : "bg-cyan-400/10 text-[var(--pe-accent-strong)]"
+                        : accent === "violet"
+                          ? "bg-violet-400/10 text-[var(--pe-violet-strong)]"
+                          : "bg-cyan-400/10 text-[var(--pe-accent-strong)]"
                       : "text-[var(--pe-text)] hover:bg-[var(--pe-hover)]",
                   )}
                 >
                   <Icon
                     className={cn(
                       "h-3.5 w-3.5 shrink-0",
-                      isCustom ? "text-amber-400" : "text-cyan-400",
+                      accent === "amber"
+                        ? "text-amber-400"
+                        : accent === "violet"
+                          ? "text-violet-400"
+                          : "text-cyan-400",
                     )}
                   />
                   <span className="truncate">{action.label}</span>

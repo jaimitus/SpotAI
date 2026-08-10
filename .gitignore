@@ -1,7 +1,14 @@
 # Node
-node_modules/
+node_modules
+RELEASE_NOTES.md/
 dist/
 dist_release/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 # Compiled Binaries & Bundles
 *.exe

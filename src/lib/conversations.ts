@@ -19,6 +19,14 @@ export function autoTitle(messages: ChatMessage[]): string {
   return clean.length > 42 ? `${clean.slice(0, 42)}…` : clean;
 }
 
+/** Pinned conversations first, then most recently updated. */
+function byPinned(a: Conversation, b: Conversation): number {
+  const aPinned = a.pinned ? 1 : 0;
+  const bPinned = b.pinned ? 1 : 0;
+  if (aPinned !== bPinned) return bPinned - aPinned;
+  return b.updatedAt - a.updatedAt;
+}
+
 /** Keeps the newest messages within both a message and a character budget. */
 export function trimMessages(messages: ChatMessage[]): ChatMessage[] {
   const kept: ChatMessage[] = [];
@@ -102,7 +110,7 @@ export function loadConversationsState(): ConversationsState {
           ...conversation,
           messages: trimMessages(conversation.messages),
         }))
-        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .sort(byPinned)
         .slice(0, MAX_CONVERSATIONS);
     } else {
       const legacy = migrateLegacy();
@@ -139,9 +147,23 @@ export function upsertConversation(
   next: Conversation,
 ): Conversation[] {
   const without = conversations.filter((item) => item.id !== next.id);
-  return [next, ...without]
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, MAX_CONVERSATIONS);
+  return [next, ...without].sort(byPinned).slice(0, MAX_CONVERSATIONS);
+}
+
+/**
+ * Toggles the pinned flag and immediately re-floats the pinned conversations to
+ * the top, so the UI reflects the new state without waiting for the next
+ * message update.
+ */
+export function togglePinned(
+  conversations: Conversation[],
+  id: string,
+): Conversation[] {
+  return conversations
+    .map((item) =>
+      item.id === id ? { ...item, pinned: !item.pinned } : item,
+    )
+    .sort(byPinned);
 }
 
 export function removeConversation(

@@ -1,14 +1,15 @@
 {
   "name": "spotai",
   "private": true,
-  "version": "1.2.1",
+  "version": "1.2.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "test": "vitest run",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "changelog": "bash scripts/changelog.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
@@ -29,6 +30,7 @@
     "tailwind-merge": "3.4.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "4.1.17",
     "@types/node": "22.19.17",
     "@types/react": "19.2.7",

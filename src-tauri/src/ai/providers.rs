@@ -337,10 +337,13 @@ where
     }
 }
 
-fn emit_token(app: &AppHandle, request_id: &str, token: &str) {
+fn emit_token(app: &AppHandle, request_id: &str, token: &str, cancel: &StreamCancel) {
     if token.is_empty() {
         return;
     }
+    // Track delivered characters so the retry policy never re-runs a stream
+    // that already produced output for the user.
+    cancel.note_emitted(token.len());
     let _ = app.emit(
         "llm-token",
         TokenEvent {
@@ -536,7 +539,7 @@ async fn stream_ollama(
                 return Err(ProviderError::Other(error.into()));
             }
             if let Some(content) = value.pointer("/message/content").and_then(Value::as_str) {
-                emit_token(app, &request.request_id, content);
+                emit_token(app, &request.request_id, content, cancel);
             }
             if value.get("done").and_then(Value::as_bool).unwrap_or(false) {
                 return Ok(());
@@ -691,7 +694,7 @@ async fn parse_openai_sse(
                 .pointer("/choices/0/delta/content")
                 .and_then(Value::as_str)
             {
-                emit_token(app, &request.request_id, content);
+                emit_token(app, &request.request_id, content, cancel);
             }
         }
     }
@@ -775,7 +778,7 @@ async fn stream_anthropic(
             match value.get("type").and_then(Value::as_str).unwrap_or_default() {
                 "content_block_delta" => {
                     if let Some(text) = value.pointer("/delta/text").and_then(Value::as_str) {
-                        emit_token(app, &request.request_id, text);
+                        emit_token(app, &request.request_id, text, cancel);
                     }
                 }
                 "message_stop" => return Ok(()),
@@ -830,50 +833,67 @@ pub async fn stream_prompt(
     let system = system_str.as_str();
     let user = compose_user_message(&request.prompt, request.context_text.as_deref());
     let history = normalize_history(&bounded_history(&request.history));
-    let result = match kind {
-        ProviderKind::Ollama => {
-            stream_ollama(
-                client,
-                &app,
-                &request,
-                system,
-                &history,
-                &user,
-                image.as_ref(),
-                &cancel,
-            )
-            .await
-        }
-        ProviderKind::Anthropic => {
-            stream_anthropic(
-                client,
-                &app,
-                &request,
-                system,
-                &history,
-                &user,
-                image.as_ref(),
-                &cancel,
-            )
-            .await
-        }
-        ProviderKind::LmStudio
-        | ProviderKind::OpenAI
-        | ProviderKind::Groq
-        | ProviderKind::DeepSeek
-        | ProviderKind::Custom => {
-            stream_openai_compatible(
-                client,
-                &app,
-                &kind,
-                &request,
-                system,
-                &history,
-                &user,
-                image.as_ref(),
-                &cancel,
-            )
-            .await
+    // Retry transient connection failures (e.g. a cold Ollama worker or a
+    // dropped TCP connection) with backoff, as long as nothing was delivered
+    // yet. API-level errors and mid-stream failures are never retried.
+    let mut attempt = 0u32;
+    let result = loop {
+        let attempt_result = match kind.clone() {
+            ProviderKind::Ollama => {
+                stream_ollama(
+                    client,
+                    &app,
+                    &request,
+                    system,
+                    &history,
+                    &user,
+                    image.as_ref(),
+                    &cancel,
+                )
+                .await
+            }
+            ProviderKind::Anthropic => {
+                stream_anthropic(
+                    client,
+                    &app,
+                    &request,
+                    system,
+                    &history,
+                    &user,
+                    image.as_ref(),
+                    &cancel,
+                )
+                .await
+            }
+            ProviderKind::LmStudio
+            | ProviderKind::OpenAI
+            | ProviderKind::Groq
+            | ProviderKind::DeepSeek
+            | ProviderKind::Custom => {
+                stream_openai_compatible(
+                    client,
+                    &app,
+                    &kind,
+                    &request,
+                    system,
+                    &history,
+                    &user,
+                    image.as_ref(),
+                    &cancel,
+                )
+                .await
+            }
+        };
+        let delay = match &attempt_result {
+            Ok(()) => None,
+            Err(error) => stream_retry_delay(error, cancel.emitted_count(), attempt),
+        };
+        match delay {
+            Some(delay) => {
+                attempt += 1;
+                tokio::time::sleep(delay).await;
+            }
+            None => break attempt_result,
         }
     };
 
@@ -885,6 +905,30 @@ pub async fn stream_prompt(
         Err(error) => emit_finished(&app, &request.request_id, false, Some(error.to_string())),
     }
     result
+}
+
+/// Maximum retries for transient connection failures before the first token.
+const MAX_STREAM_RETRIES: u32 = 2;
+
+/// Returns the delay before the next attempt when a transient connection
+/// failure (HTTP/network layer) occurred before any token reached the user.
+/// Mid-stream failures and API-level errors (auth, rate limits, bad requests)
+/// are never retried: re-running would duplicate partial output or mask real
+/// configuration problems.
+fn stream_retry_delay(
+    error: &ProviderError,
+    tokens_emitted: usize,
+    attempt: u32,
+) -> Option<Duration> {
+    if attempt >= MAX_STREAM_RETRIES || tokens_emitted > 0 {
+        return None;
+    }
+    match error {
+        ProviderError::Http(_) => {
+            Some(Duration::from_millis(if attempt == 0 { 800 } else { 2000 }))
+        }
+        _ => None,
+    }
 }
 
 pub fn default_cloud_models() -> Vec<ModelInfo> {
@@ -914,6 +958,101 @@ pub fn default_cloud_models() -> Vec<ModelInfo> {
         modified_at: None,
     })
     .collect()
+}
+
+/// Pulls an Ollama model by name (non-streaming; blocks until finished).
+pub async fn pull_ollama_model(
+    client: &Client,
+    host: &str,
+    name: &str,
+) -> Result<(), ProviderError> {
+    let host = validate_host(host)?;
+    let response = ensure_success(
+        client
+            .post(format!("{host}/api/pull"))
+            .json(&json!({ "name": name, "stream": false }))
+            .timeout(Duration::from_secs(600))
+            .send()
+            .await?,
+    )
+    .await?;
+    // Drain the body so the response stream is fully consumed.
+    response.bytes().await?;
+    Ok(())
+}
+
+/// Deletes an Ollama model by name.
+pub async fn delete_ollama_model(
+    client: &Client,
+    host: &str,
+    name: &str,
+) -> Result<(), ProviderError> {
+    let host = validate_host(host)?;
+    let response = ensure_success(
+        client
+            .delete(format!("{host}/api/delete"))
+            .json(&json!({ "name": name }))
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await?,
+    )
+    .await?;
+    response.bytes().await?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OllamaPsModel {
+    pub name: String,
+    /// Total model size in bytes.
+    pub size: u64,
+    /// Bytes resident in VRAM (0 when fully CPU-bound).
+    pub size_vram: u64,
+    /// Expiry time of the loaded model (ISO 8601), when known.
+    pub expires_at: Option<String>,
+}
+
+/// Lists models currently loaded in memory via `ollama ps` (RAM/VRAM usage).
+pub async fn ollama_ps(client: &Client, host: &str) -> Result<Vec<OllamaPsModel>, ProviderError> {
+    let host = validate_host(host)?;
+    let response = ensure_success(
+        client
+            .get(format!("{host}/api/ps"))
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await?,
+    )
+    .await?;
+    let body: Value = response.json().await?;
+    Ok(parse_ollama_ps(&body))
+}
+
+/// Parses the `GET /api/ps` payload into loaded-model entries. Kept as a pure
+/// function so the shape can be unit-tested without a live Ollama server.
+fn parse_ollama_ps(body: &Value) -> Vec<OllamaPsModel> {
+    body.get("models")
+        .and_then(Value::as_array)
+        .map(|models| {
+            models
+                .iter()
+                .filter_map(|model| {
+                    Some(OllamaPsModel {
+                        name: model.get("name")?.as_str()?.to_string(),
+                        size: model.get("size")?.as_u64()?,
+                        size_vram: model
+                            .get("size_vram")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0),
+                        expires_at: model
+                            .get("expires_at")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -1074,6 +1213,43 @@ mod tests {
     }
 
     #[test]
+    fn parse_ollama_ps_extracts_loaded_models() {
+        let body = serde_json::json!({
+            "models": [
+                {
+                    "name": "llama3.2:latest",
+                    "size": 2019369000,
+                    "size_vram": 2019369000,
+                    "expires_at": "2026-08-10T12:00:00Z",
+                    "processor": "100% GPU"
+                },
+                {
+                    "name": "phi4:q4_K_M",
+                    "size": 2842000000u64,
+                    "size_vram": 0,
+                    "expires_at": null,
+                    "processor": "100% CPU"
+                }
+            ],
+            "memory": { "total": 16793382912u64, "used": 7432396512u64 }
+        });
+        let models = parse_ollama_ps(&body);
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].name, "llama3.2:latest");
+        assert_eq!(models[0].size_vram, 2019369000);
+        assert_eq!(models[0].expires_at.as_deref(), Some("2026-08-10T12:00:00Z"));
+        assert_eq!(models[1].name, "phi4:q4_K_M");
+        assert_eq!(models[1].size_vram, 0);
+        assert_eq!(models[1].expires_at, None);
+    }
+
+    #[test]
+    fn parse_ollama_ps_handles_missing_models_key() {
+        assert!(parse_ollama_ps(&serde_json::json!({})).is_empty());
+        assert!(parse_ollama_ps(&serde_json::json!({ "models": null })).is_empty());
+    }
+
+    #[test]
     fn normalize_history_drops_trailing_user_for_clean_append() {
         let history = vec![message("user", "hello"), message("assistant", "answer")];
         let kept = normalize_history(&history);
@@ -1113,5 +1289,54 @@ mod tests {
                 "expected rejection for {bad:?}"
             );
         }
+    }
+
+    #[test]
+    fn parse_image_data_url_accepts_large_payload_without_full_scan() {
+        // Screenshots can be megabytes; validation must only touch the edges.
+        let big = format!("data:image/png;base64,{}", "A".repeat(300_000));
+        let parsed = parse_image_data_url(Some(&big)).unwrap().unwrap();
+        assert_eq!(parsed.mime, "image/png");
+        assert_eq!(parsed.data.len(), 300_000);
+    }
+
+    #[test]
+    fn stream_retry_delay_only_retries_connection_errors_before_tokens() {
+        // API-level errors (auth, rate limits, bad requests) are never retried.
+        let api = ProviderError::Api {
+            status: 401,
+            message: "unauthorized".into(),
+        };
+        assert!(stream_retry_delay(&api, 0, 0).is_none());
+        let bad_request = ProviderError::Api {
+            status: 400,
+            message: "bad".into(),
+        };
+        assert!(stream_retry_delay(&bad_request, 0, 0).is_none());
+        assert!(stream_retry_delay(&ProviderError::Cancelled, 0, 0).is_none());
+        assert!(stream_retry_delay(&ProviderError::Other("boom".into()), 0, 0).is_none());
+
+        // A connection failure before any token gets an escalating backoff…
+        let connection = connection_error();
+        assert!(matches!(connection, ProviderError::Http(_)));
+        assert_eq!(
+            stream_retry_delay(&connection, 0, 0),
+            Some(Duration::from_millis(800))
+        );
+        assert_eq!(
+            stream_retry_delay(&connection, 0, 1),
+            Some(Duration::from_millis(2000))
+        );
+        // …but the retry budget is exhausted after MAX_STREAM_RETRIES…
+        assert!(stream_retry_delay(&connection, 0, MAX_STREAM_RETRIES).is_none());
+        // …and a mid-stream failure (tokens already delivered) is never retried.
+        assert!(stream_retry_delay(&connection, 1, 0).is_none());
+    }
+
+    fn connection_error() -> ProviderError {
+        // 127.0.0.1:1 refuses connections instantly and deterministically.
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { reqwest::get("http://127.0.0.1:1/").await.unwrap_err().into() })
     }
 }

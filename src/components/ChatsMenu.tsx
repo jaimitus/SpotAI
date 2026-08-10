@@ -2,6 +2,7 @@ import {
   History,
   MessageSquarePlus,
   Pencil,
+  Pin,
   Search,
   Trash2,
 } from "lucide-react";
@@ -17,6 +18,7 @@ interface ChatsMenuProps {
   onSelect: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
+  onTogglePin: (id: string) => void;
   onNewChat: () => void;
 }
 
@@ -42,6 +44,7 @@ export function ChatsMenu({
   onSelect,
   onRename,
   onDelete,
+  onTogglePin,
   onNewChat,
 }: ChatsMenuProps) {
   const [open, setOpen] = useState(false);
@@ -52,11 +55,16 @@ export function ChatsMenu({
   const searchRef = useRef<HTMLInputElement>(null);
   const renameRef = useRef<HTMLInputElement>(null);
 
+  // Search matches titles AND message contents, so past answers are findable.
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return conversations;
-    return conversations.filter((conversation) =>
-      conversation.title.toLowerCase().includes(q),
+    return conversations.filter(
+      (conversation) =>
+        conversation.title.toLowerCase().includes(q) ||
+        conversation.messages.some((message) =>
+          message.content.toLowerCase().includes(q),
+        ),
     );
   }, [conversations, query]);
 
@@ -193,6 +201,19 @@ export function ChatsMenu({
                     )}
                     {!isRenaming && (
                       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+                        <button
+                          type="button"
+                          onClick={() => onTogglePin(conversation.id)}
+                          title={t(lang, conversation.pinned ? "unpinChat" : "pinChat")}
+                          className={cn(
+                            "rounded p-1 transition",
+                            conversation.pinned
+                              ? "text-[var(--pe-accent-strong)]"
+                              : "text-[var(--pe-text-muted)] hover:bg-[var(--pe-hover)] hover:text-[var(--pe-accent-strong)]",
+                          )}
+                        >
+                          <Pin className={cn("h-3 w-3", conversation.pinned && "fill-current")} />
+                        </button>
                         <button
                           type="button"
                           onClick={() => setRenamingId(conversation.id)}

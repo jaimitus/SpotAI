@@ -1,5 +1,9 @@
 import {
+  ArrowRightLeft,
+  BookOpen,
+  Box,
   Cloud,
+  Cpu,
   Download,
   ExternalLink,
   Eye,
@@ -25,16 +29,20 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../lib/i18n";
 import { resolveTheme, subscribeSystemTheme } from "../lib/theme";
 import { APP_VERSION } from "../lib/version";
+import { DEFAULT_PROMPT_TEMPLATES } from "../lib/prompts";
 import {
   checkOllamaHealth,
   confirmDialog,
   deleteApiKey,
   deleteCustomApiKey,
   exportSettingsToFile,
+  fetchOllamaPs,
   getApiKeyStatus,
   getCustomApiKeyStatus,
   importSettingsFromFile,
   isTauri,
+  ollamaDeleteModel,
+  ollamaPullModel,
   openExternalUrl,
   pickOpenPath,
   pickSavePath,
@@ -51,8 +59,21 @@ import type {
   CustomProvider,
   HealthStatus,
   Language,
+  OllamaPsModel,
+  PromptTemplate,
 } from "../types";
 import { cn } from "../utils/cn";
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
+  const value = bytes / 1024 ** index;
+  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
+}
 
 interface SettingsModalProps {
   open: boolean;
@@ -97,6 +118,17 @@ export function SettingsModal({
   const [newLabel, setNewLabel] = useState("");
   const [newPrompt, setNewPrompt] = useState("");
 
+  // Prompt Library state
+  const [templateLabel, setTemplateLabel] = useState("");
+  const [templatePrompt, setTemplatePrompt] = useState("");
+
+  // Ollama model manager state
+  const [ollamaPs, setOllamaPs] = useState<OllamaPsModel[]>([]);
+  const [managerBusy, setManagerBusy] = useState(false);
+  const [managerError, setManagerError] = useState<string | null>(null);
+  const [managerMessage, setManagerMessage] = useState<string | null>(null);
+  const [pullName, setPullName] = useState("");
+
   // Data & updates state
   const [updateState, setUpdateState] = useState<
     "idle" | "checking" | "uptodate" | "available" | "failed"
@@ -112,6 +144,7 @@ export function SettingsModal({
       language: settings.language || "en",
       systemPrompt: settings.systemPrompt || "",
       customActions: settings.customActions || [],
+      promptTemplates: settings.promptTemplates || [],
     });
     setShortcutDraft(settings.globalShortcut || "Alt+Space");
     setAutostartEnabled(Boolean(settings.autostart));
@@ -253,6 +286,47 @@ export function SettingsModal({
   const pingOllama = async () => {
     const h = await checkOllamaHealth(draft.ollamaHost);
     setHealth(h);
+    if (h.ollama) void loadOllamaPs();
+  };
+
+  const loadOllamaPs = async () => {
+    const models = await fetchOllamaPs(draft.ollamaHost);
+    setOllamaPs(models);
+  };
+
+  const handlePullModel = async () => {
+    const name = pullName.trim();
+    if (!name || managerBusy) return;
+    setManagerBusy(true);
+    setManagerError(null);
+    setManagerMessage(`${t(currentLang, "pullingModel")} ${name}…`);
+    try {
+      await ollamaPullModel(name, draft.ollamaHost);
+      setManagerMessage(`${t(currentLang, "pulledModel")} ${name}`);
+      setPullName("");
+      void loadOllamaPs();
+    } catch (error) {
+      setManagerError(String(error));
+      setManagerMessage(null);
+    } finally {
+      setManagerBusy(false);
+    }
+  };
+
+  const handleDeleteModel = async (name: string) => {
+    if (managerBusy) return;
+    setManagerBusy(true);
+    setManagerError(null);
+    setManagerMessage(null);
+    try {
+      await ollamaDeleteModel(name, draft.ollamaHost);
+      setManagerMessage(`${t(currentLang, "deletedModel")} ${name}`);
+      void loadOllamaPs();
+    } catch (error) {
+      setManagerError(String(error));
+    } finally {
+      setManagerBusy(false);
+    }
   };
 
   const startEditCustom = (cp: CustomProvider) => {
@@ -354,6 +428,32 @@ export function SettingsModal({
       ...d,
       customActions: (d.customActions || []).filter((b) => b.id !== id),
     }));
+  };
+
+  const handleAddTemplate = () => {
+    if (!templateLabel.trim() || !templatePrompt.trim()) return;
+    const template: PromptTemplate = {
+      id: `tpl_${Date.now()}`,
+      label: templateLabel.trim(),
+      prompt: templatePrompt.trim(),
+    };
+    setDraft((d) => ({
+      ...d,
+      promptTemplates: [...(d.promptTemplates || []), template],
+    }));
+    setTemplateLabel("");
+    setTemplatePrompt("");
+  };
+
+  const handleDeleteTemplate = (id: string) => {
+    setDraft((d) => ({
+      ...d,
+      promptTemplates: (d.promptTemplates || []).filter((tpl) => tpl.id !== id),
+    }));
+  };
+
+  const handleRestoreTemplates = () => {
+    setDraft((d) => ({ ...d, promptTemplates: DEFAULT_PROMPT_TEMPLATES }));
   };
 
   const handleExportSettings = async () => {
@@ -700,6 +800,47 @@ export function SettingsModal({
                 </button>
               </section>
 
+              {/* Quick-action behavior: auto-insert or copy-only */}
+              <section className="space-y-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
+                  <ArrowRightLeft className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>{t(currentLang, "quickActionLabel")}</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={draft.autoInsertQuickActions !== false}
+                  onClick={() => update("autoInsertQuickActions", draft.autoInsertQuickActions === false)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-[var(--pe-border)] bg-[var(--pe-input)] px-3.5 py-2.5 text-left transition hover:bg-[var(--pe-hover)]"
+                >
+                  <span>
+                    <span className="block text-[12px] font-medium text-[var(--pe-text)]">
+                      {t(currentLang, "autoInsertQuickActions")}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                      {t(currentLang, "quickActionDesc")}
+                    </span>
+                  </span>
+                  <span
+                    className={cn(
+                      "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
+                      draft.autoInsertQuickActions !== false
+                        ? "bg-cyan-500/80"
+                        : "bg-[var(--pe-input-hover)]",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+                        draft.autoInsertQuickActions !== false
+                          ? "translate-x-[18px]"
+                          : "translate-x-[2px]",
+                      )}
+                    />
+                  </span>
+                </button>
+              </section>
+
               <section className="space-y-3">
                 <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
                   <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
@@ -886,6 +1027,107 @@ export function SettingsModal({
                     spellCheck={false}
                   />
                 </Field>
+              </section>
+
+              {/* Ollama model manager */}
+              <section className="space-y-3 pt-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-muted)]">
+                    <Box className="h-3.5 w-3.5 text-[var(--pe-violet-strong)]" />
+                    {t(currentLang, "ollamaManager")}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => void loadOllamaPs()}
+                    className="inline-flex items-center gap-1 rounded-lg p-1 text-[10px] text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    {t(currentLang, "refresh")}
+                  </button>
+                </div>
+
+                {/* Loaded models (RAM/VRAM) */}
+                <div className="space-y-1.5">
+                  <p className="flex items-center gap-1.5 text-[10px] font-medium text-[var(--pe-text-muted)]">
+                    <Cpu className="h-3 w-3" />
+                    {t(currentLang, "loadedModels")}
+                  </p>
+                  {ollamaPs.length === 0 ? (
+                    <p className="text-[11px] italic text-[var(--pe-text-faint)]">
+                      {t(currentLang, "noLoadedModels")}
+                    </p>
+                  ) : (
+                    ollamaPs.map((model) => (
+                      <div
+                        key={model.name}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-2.5 py-1.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-[11px] text-[var(--pe-text)]">
+                            {model.name}
+                          </p>
+                          <p className="text-[10px] text-[var(--pe-text-muted)]">
+                            {formatBytes(model.size)}
+                            {model.sizeVram > 0
+                              ? ` · VRAM ${formatBytes(model.sizeVram)}`
+                              : ` · ${t(currentLang, "cpuOnly")}`}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteModel(model.name)}
+                          disabled={managerBusy}
+                          className="shrink-0 rounded-md p-1 text-[var(--pe-text-muted)] transition hover:bg-rose-500/10 hover:text-[var(--pe-rose-strong)] disabled:opacity-40"
+                          title={t(currentLang, "deleteModel")}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Pull model */}
+                <div className="flex gap-2">
+                  <input
+                    value={pullName}
+                    onChange={(e) => setPullName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void handlePullModel();
+                      }
+                    }}
+                    placeholder={t(currentLang, "pullPlaceholder")}
+                    className={inputCls}
+                    spellCheck={false}
+                    disabled={managerBusy}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handlePullModel()}
+                    disabled={managerBusy || !pullName.trim()}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-violet-500/90 px-3 text-[11px] font-medium text-zinc-950 transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:bg-[var(--pe-hover)] disabled:text-[var(--pe-text-faint)]"
+                  >
+                    {managerBusy ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                    {t(currentLang, "pull")}
+                  </button>
+                </div>
+
+                {managerMessage && (
+                  <p className="text-[11px] text-[var(--pe-emerald-strong)]">
+                    {managerMessage}
+                  </p>
+                )}
+                {managerError && (
+                  <p className="break-words text-[11px] text-[var(--pe-rose-strong)]">
+                    {managerError}
+                  </p>
+                )}
               </section>
 
               {/* Cloud API keys */}
@@ -1208,6 +1450,94 @@ export function SettingsModal({
                   </div>
                 )}
               </div>
+
+              {/* Prompt Library */}
+              <section className="space-y-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--pe-violet-strong)]">
+                  <BookOpen className="h-3.5 w-3.5" />
+                  <span>{t(currentLang, "templatesLabel")}</span>
+                </div>
+                <p className="text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                  {t(currentLang, "templatesDesc")}
+                </p>
+
+                {/* Add form */}
+                <div className="space-y-3 rounded-xl border border-violet-500/20 bg-violet-500/[0.04] p-3.5">
+                  <div className="text-[11px] font-medium text-[var(--pe-violet-strong)]">
+                    {t(currentLang, "addTemplate")}
+                  </div>
+                  <input
+                    type="text"
+                    value={templateLabel}
+                    onChange={(e) => setTemplateLabel(e.target.value)}
+                    placeholder={t(currentLang, "templateLabelPlaceholder")}
+                    className={inputCls}
+                  />
+                  <textarea
+                    value={templatePrompt}
+                    onChange={(e) => setTemplatePrompt(e.target.value)}
+                    placeholder={t(currentLang, "templatePromptPlaceholder")}
+                    rows={2}
+                    className={cn(inputCls, "resize-none")}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddTemplate}
+                    disabled={!templateLabel.trim() || !templatePrompt.trim()}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium transition select-none",
+                      templateLabel.trim() && templatePrompt.trim()
+                        ? "bg-violet-500/90 text-zinc-950 hover:bg-violet-400"
+                        : "bg-[var(--pe-hover)] text-[var(--pe-text-faint)] cursor-not-allowed",
+                    )}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>{t(currentLang, "addTemplate")}</span>
+                  </button>
+                </div>
+
+                {/* Template list */}
+                <div className="space-y-2">
+                  {(draft.promptTemplates || []).length === 0 ? (
+                    <p className="text-[11px] italic text-[var(--pe-text-muted)]">
+                      {t(currentLang, "noTemplates")}
+                    </p>
+                  ) : (
+                    (draft.promptTemplates || []).map((tpl) => (
+                      <div
+                        key={tpl.id}
+                        className="flex items-start justify-between gap-3 rounded-xl border border-[var(--pe-border)] bg-[var(--pe-input)] p-3"
+                      >
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <span className="rounded-full bg-violet-400/20 px-2 py-0.5 text-[10px] font-medium text-[var(--pe-violet-strong)]">
+                            {tpl.label}
+                          </span>
+                          <p className="line-clamp-2 font-mono text-[11px] leading-relaxed text-[var(--pe-text-soft)]">
+                            {tpl.prompt}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTemplate(tpl.id)}
+                          className="rounded-lg p-1.5 text-[var(--pe-text-muted)] transition hover:bg-rose-500/10 hover:text-[var(--pe-rose-strong)]"
+                          title={t(currentLang, "deleteTemplate")}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleRestoreTemplates}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-3 py-1.5 text-[11px] text-[var(--pe-text)] transition hover:bg-[var(--pe-hover)]"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  {t(currentLang, "restoreDefaults")}
+                </button>
+              </section>
             </section>
           )}
         </div>

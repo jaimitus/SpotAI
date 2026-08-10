@@ -1,4 +1,4 @@
-import type { ActionChip, ActionChipId, Language } from "../types";
+import type { ActionChip, ActionChipId, Language, PromptTemplate } from "../types";
 
 export const ACTION_CHIPS: ActionChip[] = [
   {
@@ -135,6 +135,37 @@ export function buildActionPrompt(
   }
   return base;
 }
+
+/** Curated prompt templates shown in the `/` palette and editable in Settings. */
+export const DEFAULT_PROMPT_TEMPLATES: PromptTemplate[] = [
+  {
+    id: "security-review",
+    label: "Security review",
+    prompt:
+      "Review the following for security vulnerabilities (injection, auth, secrets, input validation). List each issue with severity and a fix:",
+  },
+  {
+    id: "unit-tests",
+    label: "Write unit tests",
+    prompt:
+      "Write comprehensive unit tests for the following code. Cover edge cases and follow the project's test conventions:",
+  },
+  {
+    id: "sql-optimize",
+    label: "Optimize SQL",
+    prompt: "Optimize this SQL query for speed: add appropriate indexes and explain the changes:",
+  },
+  {
+    id: "explain-simple",
+    label: "Explain simply",
+    prompt: "Explain the following in simple terms a non-expert can understand:",
+  },
+  {
+    id: "commit-message",
+    label: "Write commit message",
+    prompt: "Write a concise conventional-commit message for the following changes:",
+  },
+];
 
 export const DEFAULT_SETTINGS_KEY = "spotai.settings.v1";
 export const SPOTAI_REPO_URL = "https://github.com/jaimitus/SpotAI";

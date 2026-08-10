@@ -37,6 +37,28 @@ interface FlatItem {
   refIndex: number;
 }
 
+/**
+ * Raycast-style subsequence scorer: returns a positive score when every query
+ * character appears in order inside `target`, or -1 when it does not. Earlier
+ * matches, consecutive runs and shorter targets score higher, so typo-tolerant
+ * queries still rank the intended model first.
+ */
+function fuzzyScore(query: string, target: string): number {
+  if (!query) return 0;
+  let queryIndex = 0;
+  let lastMatch = -2;
+  let score = 0;
+  for (let targetIndex = 0; targetIndex < target.length && queryIndex < query.length; targetIndex++) {
+    if (target[targetIndex] === query[queryIndex]) {
+      queryIndex++;
+      score += targetIndex === 0 ? 10 : targetIndex === lastMatch + 1 ? 3 : 1;
+      lastMatch = targetIndex;
+    }
+  }
+  if (queryIndex < query.length) return -1;
+  return score - Math.abs(target.length - query.length);
+}
+
 function formatModelSize(bytes?: number | null): string | null {
   if (!bytes || bytes <= 0) return null;
   const gb = bytes / 1024 ** 3;
@@ -117,17 +139,20 @@ export function ProviderBadge({
     : model.replace(/-latest$/, "");
 
   const normalizedQuery = query.trim().toLowerCase();
-  const filteredModels = useMemo(
-    () =>
-      normalizedQuery
-        ? models.filter(
-            (m) =>
-              m.name.toLowerCase().includes(normalizedQuery) ||
-              m.id.toLowerCase().includes(normalizedQuery),
-          )
-        : models,
-    [models, normalizedQuery],
-  );
+  const filteredModels = useMemo(() => {
+    if (!normalizedQuery) return models;
+    return models
+      .map((m) => ({
+        model: m,
+        score: Math.max(
+          fuzzyScore(normalizedQuery, m.name.toLowerCase()),
+          fuzzyScore(normalizedQuery, m.id.toLowerCase()),
+        ),
+      }))
+      .filter((entry): entry is { model: ModelInfo; score: number } => entry.score >= 0)
+      .sort((a, b) => b.score - a.score)
+      .map((entry) => entry.model);
+  }, [models, normalizedQuery]);
 
   const flatItems = useMemo(() => {
     const items: FlatItem[] = [];

@@ -21,6 +21,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      # Auto-generate the release notes from conventional commits.
+      - name: Generate changelog
+        shell: bash
+        run: bash scripts/changelog.sh "${{ github.ref_name }}"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -32,9 +36,7 @@ jobs:
           projectPath: src-tauri
           tagName: v__VERSION__
           releaseName: "SpotAI v__VERSION__"
-          releaseBody: |
-            See the assets below to download and install this version of SpotAI.
-            Existing installs pick up the update automatically via the built-in updater.
+          releaseBodyFile: RELEASE_NOTES.md
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true

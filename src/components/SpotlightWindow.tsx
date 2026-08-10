@@ -1,10 +1,16 @@
 import {
   ArrowUp,
+  Camera,
+  Check,
   Clipboard,
   Download,
   ExternalLink,
+  EyeOff,
+  ClipboardPaste,
+  Copy,
   Loader2,
   MoveDiagonal2,
+  RefreshCw,
   Settings2,
   Sparkles,
   X,
@@ -30,11 +36,13 @@ import {
   persistConversations,
   removeConversation,
   renameConversation as renameConversationInStore,
+  togglePinned as togglePinnedInStore,
   trimMessages,
   upsertConversation,
 } from "../lib/conversations";
 import { t } from "../lib/i18n";
 import { resolveTheme, subscribeSystemTheme } from "../lib/theme";
+import type { ThemePreference } from "../types";
 import { buildActionPrompt } from "../lib/prompts";
 import { buildSlashActions, type SlashAction } from "../lib/slash";
 import { APP_VERSION } from "../lib/version";
@@ -44,6 +52,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   autoInsertText,
   checkOllamaHealth,
+  captureScreens,
   confirmDialog,
   fetchCloudModels,
   fetchLmStudioModels,
@@ -52,27 +61,35 @@ import {
   getApiKeyStatus,
   hideWindow,
   isTauri,
+  listenQuickAction,
   listenWindowShown,
   loadSettings,
   openExternalUrl,
   registerShortcut,
   resolveHost,
   saveSettings,
+  setClipboardText,
 } from "../lib/tauri";
 import type {
   ActionChipId,
   AppSettings,
   CapturedImage,
+  CapturedScreen,
   ChatMessage,
   ContextKind,
   Conversation,
   CustomAction,
+  Language,
   ModelInfo,
+  PromptTemplate,
+  QuickActionPayload,
+  SystemActionId,
 } from "../types";
 import { cn } from "../utils/cn";
 import { ActionChips } from "./ActionChips";
 import { ProviderBadge } from "./ProviderBadge";
 import { ResponsePanel } from "./ResponsePanel";
+import { ScreenCaptureOverlay } from "./ScreenCaptureOverlay";
 import { SettingsModal } from "./SettingsModal";
 import { SlashMenu } from "./SlashMenu";
 
@@ -81,6 +98,17 @@ const LEGACY_PROMPT_HISTORY_KEY = "spotai.prompt-history.v1";
 const MAX_PROMPT_HISTORY = 20;
 const MODEL_MEMORY_KEY = "spotai.model-memory.v1";
 const WINDOW_SIZE_KEY = "spotai.window-size.v1";
+
+/** Formats a capture timestamp as a localized clock time (e.g. "14:32:05"). */
+function formatCaptureTime(timestamp: number, lang: Language): string {
+  const locale =
+    lang === "es" ? "es-ES" : lang === "de" ? "de-DE" : lang === "pt" ? "pt-PT" : lang === "fr" ? "fr-FR" : "en-GB";
+  return new Date(timestamp).toLocaleTimeString(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 
 function loadModelMemory(): Record<string, string> {
   try {
@@ -183,15 +211,35 @@ export function SpotlightWindow() {
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
   const [updating, setUpdating] = useState(false);
   const [updateFailed, setUpdateFailed] = useState(false);
+  const [incognito, setIncognito] = useState(false);
+  const [capturedScreens, setCapturedScreens] = useState<CapturedScreen[]>([]);
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [captureLoading, setCaptureLoading] = useState(false);
+  const [copiedFlash, setCopiedFlash] = useState(false);
+  const [contextRefreshFailed, setContextRefreshFailed] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteDraft, setPasteDraft] = useState("");
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyIndexRef = useRef<number | null>(null);
   const historyDraftRef = useRef("");
+  // Set when a request was started from a dedicated quick-action shortcut
+  // (Ctrl+Shift+T/R/K). When the reply finishes, it is inserted into the
+  // previously-focused app automatically instead of waiting for Ctrl+Enter.
+  const quickActionRef = useRef<QuickActionPayload | null>(null);
   const appliedShortcutRef = useRef<string | null>(null);
   const providerRef = useRef(provider);
   const activeConversationIdRef = useRef(activeConversationId);
   const modelMemoryRef = useRef<Record<string, string>>(loadModelMemory());
-  const { contextText, clearContext, refresh, truncated, kind: contextKind } = useClipboardContext();
+  const {
+    contextText,
+    setManualContext,
+    clearContext,
+    refresh,
+    capturedAt,
+    truncated,
+    kind: contextKind,
+  } = useClipboardContext();
   const contextKindLabels: Record<ContextKind, "contextKind_empty" | "contextKind_text" | "contextKind_code" | "contextKind_error" | "contextKind_json" | "contextKind_url"> = {
     empty: "contextKind_empty",
     text: "contextKind_text",
@@ -211,17 +259,17 @@ export function SpotlightWindow() {
 
   const recordPrompt = useCallback((value: string) => {
     const normalized = value.trim();
-    if (!normalized) return;
+    if (!normalized || incognito) return;
     setPromptHistory((current) => [
       { prompt: normalized, response: "" },
       ...current.filter((item) => item.prompt !== normalized),
     ].slice(0, MAX_PROMPT_HISTORY));
     historyIndexRef.current = null;
     historyDraftRef.current = "";
-  }, []);
+  }, [incognito]);
 
   const recordResponse = useCallback((promptValue: string, responseValue: string) => {
-    if (!responseValue) return;
+    if (!responseValue || incognito) return;
     setPromptHistory((current) => {
       const exists = current.some((entry) => entry.prompt === promptValue);
       if (!exists) {
@@ -234,7 +282,7 @@ export function SpotlightWindow() {
         entry.prompt === promptValue ? { ...entry, response: responseValue } : entry,
       );
     });
-  }, []);
+  }, [incognito]);
 
   const removePrompt = useCallback((promptValue: string) => {
     setPromptHistory((current) =>
@@ -292,6 +340,8 @@ export function SpotlightWindow() {
     reset();
     setPromptValue("");
     setActiveAction(null);
+    // Cancel any pending quick-action auto-insert (Esc, new chat, incognito…).
+    quickActionRef.current = null;
   }, [status, stop, reset, setPromptValue]);
 
   const newChat = useCallback(() => {
@@ -326,6 +376,23 @@ export function SpotlightWindow() {
   const renameConversation = useCallback((id: string, title: string) => {
     setConversations((current) => renameConversationInStore(current, id, title));
   }, []);
+
+  const togglePinned = useCallback((id: string) => {
+    setConversations((current) => togglePinnedInStore(current, id));
+  }, []);
+
+  const editPrompt = useCallback(
+    (content: string) => {
+      setActiveAction(null);
+      setPromptValue(content);
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        const el = inputRef.current;
+        if (el) el.selectionStart = el.selectionEnd = el.value.length;
+      });
+    },
+    [setPromptValue],
+  );
 
   const deleteConversation = useCallback(
     async (id: string) => {
@@ -362,6 +429,56 @@ export function SpotlightWindow() {
     // The native command hides before injecting so the previous app receives Ctrl+V.
     await hideWindow();
   }, [insertTarget, canAutoInsert, clearOverlayState]);
+
+  // Re-runs the last user question, dropping the previous reply so the new
+  // answer replaces it instead of stacking on top.
+  const regenerate = useCallback(async () => {
+    if (isStreaming) return;
+    const conversationAtSubmit = activeConversationIdRef.current;
+    const trimmedMessages = messages.slice();
+    while (
+      trimmedMessages.length > 0 &&
+      trimmedMessages[trimmedMessages.length - 1].role === "assistant"
+    ) {
+      trimmedMessages.pop();
+    }
+    const lastUser = trimmedMessages
+      .filter((message) => message.role === "user")
+      .at(-1);
+    if (!lastUser) return;
+    setMessages(trimmedMessages);
+    const completedResponse = await start({
+      provider,
+      model,
+      prompt: lastUser.content,
+      contextText: contextText || null,
+      imageDataUrl: contextImage?.dataUrl ?? null,
+      host: resolveHost(provider, settings),
+      systemPrompt: settings.systemPrompt || null,
+      temperature: settings.temperature,
+      maxTokens: settings.maxTokens,
+      history: trimmedMessages,
+    });
+    // Never write a finished turn into a conversation the user switched away from.
+    if (activeConversationIdRef.current !== conversationAtSubmit) return;
+    if (completedResponse) {
+      setMessages((current) => [
+        ...current,
+        { role: "assistant", content: completedResponse },
+      ]);
+      recordResponse(lastUser.content, completedResponse);
+    }
+  }, [
+    isStreaming,
+    messages,
+    provider,
+    model,
+    contextText,
+    contextImage,
+    settings,
+    start,
+    recordResponse,
+  ]);
 
   const installUpdate = async () => {
     if (!pendingUpdate || updating) return;
@@ -532,13 +649,14 @@ export function SpotlightWindow() {
   }, []);
 
   useEffect(() => {
+    if (incognito) return;
     try {
       localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(promptHistory));
       localStorage.removeItem(LEGACY_PROMPT_HISTORY_KEY);
     } catch {
       // Prompt history is a convenience; the overlay must still work if storage is unavailable.
     }
-  }, [promptHistory]);
+  }, [promptHistory, incognito]);
 
   // Persist the active conversation whenever its messages change, deriving an
   // auto-title from the first user prompt unless the user renamed it.
@@ -555,6 +673,8 @@ export function SpotlightWindow() {
             ? existing.title
             : autoTitle(trimmed) || existing?.title || "New chat",
         renamed: existing?.renamed ?? false,
+        // Preserve the pin across message updates.
+        pinned: existing?.pinned ?? false,
         createdAt: existing?.createdAt ?? Date.now(),
         updatedAt: Date.now(),
         messages: trimmed,
@@ -563,13 +683,17 @@ export function SpotlightWindow() {
   }, [messages, activeConversationId]);
 
   useEffect(() => {
+    if (incognito) return;
     persistConversations(conversations);
-  }, [conversations]);
+  }, [conversations, incognito]);
 
   useEffect(() => {
-    persistActiveId(activeConversationId);
+    // The ref must always track the active chat (it guards chat switches while
+    // a stream is running); only the persistence is skipped in incognito.
     activeConversationIdRef.current = activeConversationId;
-  }, [activeConversationId]);
+    if (incognito) return;
+    persistActiveId(activeConversationId);
+  }, [activeConversationId, incognito]);
 
   // The Settings "Clear conversations" action resets the in-memory chat state.
   useEffect(() => {
@@ -681,9 +805,88 @@ export function SpotlightWindow() {
     });
   };
 
+  const handleSelectTemplate = (template: PromptTemplate) => {
+    setActiveAction(template.id);
+    setPromptValue(template.prompt);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      const el = inputRef.current;
+      if (el) {
+        el.selectionStart = el.value.length;
+        el.selectionEnd = el.value.length;
+      }
+    });
+  };
+
+  const toggleIncognito = useCallback(() => {
+    const next = !incognito;
+    setIncognito(next);
+    if (next) {
+      // Start clean: fresh chat, no history and no clipboard context.
+      clearOverlayState();
+      setMessages([]);
+      setActiveConversationId(createConversationId());
+      setPromptHistory([]);
+      clearContext();
+    }
+  }, [incognito, clearOverlayState, clearContext]);
+
+  const startScreenCapture = useCallback(async () => {
+    if (captureLoading) return;
+    setCaptureLoading(true);
+    try {
+      const screens = await captureScreens();
+      if (!screens.length) return;
+      setCapturedScreens(screens);
+      setCaptureOpen(true);
+    } catch (error) {
+      console.error("Screen capture failed:", error);
+    } finally {
+      setCaptureLoading(false);
+    }
+  }, [captureLoading]);
+
+  const handleSystemAction = (id: SystemActionId) => {
+    switch (id) {
+      case "new":
+        newChat();
+        break;
+      case "theme": {
+        const resolved = settings.theme === "system" ? resolveTheme(undefined) : settings.theme;
+        const nextTheme: ThemePreference = resolved === "light" ? "dark" : "light";
+        const updated = { ...settings, theme: nextTheme };
+        setSettings(updated);
+        saveSettings(updated);
+        break;
+      }
+      case "settings":
+        setSettingsOpen(true);
+        break;
+      case "hide":
+        dismissOverlay();
+        break;
+      case "clear":
+        clearOverlayState();
+        setMessages([]);
+        break;
+      case "capture":
+        void startScreenCapture();
+        break;
+      case "incognito":
+        toggleIncognito();
+        break;
+    }
+  };
+
   const slashActions = useMemo(
-    () => buildSlashActions(prompt, settings.customActions || [], currentLang),
-    [prompt, settings.customActions, currentLang],
+    () =>
+      buildSlashActions(
+        prompt,
+        settings.customActions || [],
+        settings.promptTemplates || [],
+        currentLang,
+      ),
+    [prompt, settings.customActions, settings.promptTemplates, currentLang],
   );
   const slashOpen = prompt.startsWith("/");
 
@@ -696,8 +899,44 @@ export function SpotlightWindow() {
       handleAction(action.chipId);
     } else if (action.kind === "custom" && action.custom) {
       handleSelectCustomAction(action.custom);
+    } else if (action.kind === "template" && action.template) {
+      handleSelectTemplate(action.template);
+    } else if (action.kind === "system" && action.systemId) {
+      handleSystemAction(action.systemId);
     }
   };
+
+  // Dedicated global shortcuts (Ctrl+Shift+T/R/K) arrive as "quick-action"
+  // events with the clipboard text captured by the backend. The chip prompt is
+  // loaded and the clipboard text is injected as context so the action applies
+  // to whatever the user had selected/copied in the other app.
+  const handleQuickAction = useCallback(
+    (payload: QuickActionPayload) => {
+      const chipIds: Record<string, ActionChipId> = {
+        translate: "translate",
+        refactor: "refactor",
+        summarize: "summarize",
+      };
+      const chipId = chipIds[payload.action];
+      if (chipId) handleAction(chipId);
+      // Route through setManualContext so the capture timestamp and kind are
+      // kept consistent with clipboard captures.
+      if (payload.text.trim()) setManualContext(payload.text.trim());
+      quickActionRef.current = payload;
+    },
+    [handleAction, setManualContext],
+  );
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlistenQuick: (() => void) | undefined;
+    void listenQuickAction(handleQuickAction).then((dispose) => {
+      unlistenQuick = dispose;
+    });
+    return () => {
+      unlistenQuick?.();
+    };
+  }, [handleQuickAction]);
 
   const canSubmit = useMemo(() => {
     if (isStreaming) return false;
@@ -715,6 +954,11 @@ export function SpotlightWindow() {
     }
 
     const conversationAtSubmit = activeConversationIdRef.current;
+    // Disarm any pending quick-action auto-insert immediately: only the submit
+    // that started from the shortcut may insert, and it must not survive a chat
+    // switch mid-stream or a later manual request.
+    const quickAction = quickActionRef.current;
+    quickActionRef.current = null;
     const userMessage: ChatMessage = { role: "user", content: finalPrompt };
     setMessages((current) => [...current, userMessage]);
     recordPrompt(finalPrompt);
@@ -739,7 +983,37 @@ export function SpotlightWindow() {
         { role: "assistant", content: completedResponse },
       ]);
       recordResponse(finalPrompt, completedResponse);
+      // Requests launched from a dedicated quick-action shortcut either insert
+      // the reply into the previously-focused app automatically, or (when the
+      // user disabled auto-insert) copy it to the clipboard and stay open.
+      if (quickAction) {
+        if (settings.autoInsertQuickActions !== false) {
+          try {
+            await autoInsertText(completedResponse);
+            clearOverlayState();
+            await hideWindow();
+          } catch {
+            // Keep the window open with the answer visible so it can be copied.
+          }
+        } else {
+          try {
+            await setClipboardText(completedResponse);
+            // Leave the window open with the answer visible, but clear the
+            // pre-filled prompt so a stray Enter cannot re-send the same
+            // request; the clipboard context is kept for easy re-runs.
+            setPromptValue("");
+            setActiveAction(null);
+            setCopiedFlash(true);
+            window.setTimeout(() => setCopiedFlash(false), 1800);
+          } catch {
+            // Clipboard can be temporarily unavailable; the text is still visible.
+          }
+        }
+      }
     } else {
+      // The turn produced no output (error or cancelled): a pending quick
+      // action must not stick around for the next manual request.
+      quickActionRef.current = null;
       removePrompt(finalPrompt);
       // The turn produced no output (error or cancelled): drop the trailing
       // user message so the conversation is not left with a dangling question.
@@ -841,12 +1115,6 @@ export function SpotlightWindow() {
       void submit();
     }
   };
-
-  const contextPreview = contextText
-    ? contextText.length > 160
-      ? `${contextText.slice(0, 160)}...`
-      : contextText
-    : "";
 
   return (
     <div className="h-screen w-screen m-0 p-0 bg-transparent flex flex-col justify-start overflow-hidden select-none">
@@ -969,6 +1237,24 @@ export function SpotlightWindow() {
             />
             <button
               type="button"
+              onClick={toggleIncognito}
+              title={
+                incognito ? t(currentLang, "incognitoOn") : t(currentLang, "incognito")
+              }
+              aria-label={
+                incognito ? t(currentLang, "incognitoOn") : t(currentLang, "incognito")
+              }
+              className={cn(
+                "rounded-lg p-1.5 transition",
+                incognito
+                  ? "bg-violet-400/15 text-[var(--pe-violet-strong)]"
+                  : "text-[var(--pe-text-muted)] hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]",
+              )}
+            >
+              <EyeOff className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
               onClick={() => setSettingsOpen(true)}
               title={t(currentLang, "settingsTitle")}
               className="rounded-lg p-1.5 text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]"
@@ -986,43 +1272,176 @@ export function SpotlightWindow() {
           </div>
         </div>
 
-        {/* Context strip */}
-        {contextText && (
-          <div className="flex items-start gap-2 border-b border-[var(--pe-border-faint)] bg-cyan-400/[0.03] px-3 py-2">
-            <Clipboard className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--pe-accent-strong)]" />
-            <div className="min-w-0 flex-1">
-              <div className="mb-0.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-[var(--pe-accent-strong)]">
-                {t(currentLang, "capturedContext")}
-                <span className="normal-case tracking-normal text-[var(--pe-text-muted)]">
-                  {t(currentLang, contextKindLabels[contextKind])}
-                </span>
-                {truncated && (
-                  <span className="normal-case tracking-normal text-[var(--pe-amber-strong)]">
-                    {t(currentLang, "truncated")}
+        {/* Context strip — always visible so clipboard context can be captured,
+            refreshed or dismissed at any time without restarting the app. */}
+        <div className="flex items-start gap-2 border-b border-[var(--pe-border-faint)] bg-cyan-400/[0.03] px-3 py-2">
+          <Clipboard className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--pe-accent-strong)]" />
+          <div className="min-w-0 flex-1">
+            <div className="mb-0.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-[var(--pe-accent-strong)]">
+              {t(currentLang, "capturedContext")}
+              {contextText ? (
+                <>
+                  <span className="normal-case tracking-normal text-[var(--pe-text-muted)]">
+                    {t(currentLang, contextKindLabels[contextKind])}
                   </span>
-                )}
-                <span className="font-normal normal-case tracking-normal text-[var(--pe-text-faint)]">
-                  {contextText.length.toLocaleString()} {t(currentLang, "chars")}
+                  {truncated && (
+                    <span className="normal-case tracking-normal text-[var(--pe-amber-strong)]">
+                      {t(currentLang, "truncated")}
+                    </span>
+                  )}
+                  <span className="font-normal normal-case tracking-normal text-[var(--pe-text-faint)]">
+                    {contextText.length.toLocaleString()} {t(currentLang, "chars")}
+                  </span>
+                  {capturedAt && (
+                    <span className="font-normal normal-case tracking-normal text-[var(--pe-text-faint)]">
+                      · {t(currentLang, "capturedAt")} {formatCaptureTime(capturedAt, currentLang)}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="font-normal normal-case tracking-normal text-[var(--pe-text-muted)]">
+                  {t(currentLang, "noContextHint")}
                 </span>
-              </div>
-              <p className="line-clamp-2 whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-[var(--pe-text-soft)]">
-                {contextPreview}
-              </p>
+              )}
             </div>
+            {contextText ? (
+              <div className="max-h-20 overflow-y-auto whitespace-pre-wrap break-all pr-1 font-mono text-[11px] leading-relaxed text-[var(--pe-text-soft)]">
+                {contextText}
+              </div>
+            ) : (
+              <p className="text-[11px] italic leading-relaxed text-[var(--pe-text-faint)]">
+                {t(currentLang, "noContextDesc")}
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-0.5">
             <button
               type="button"
-              onClick={clearContext}
-              className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]"
+              onClick={() => {
+                setPasteDraft(contextText);
+                setPasteOpen((open) => !open);
+              }}
+              title={t(currentLang, "pasteManual")}
+              aria-label={t(currentLang, "pasteManual")}
+              className={cn(
+                "rounded-md p-1.5 text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-accent-strong)]",
+                pasteOpen && "bg-[var(--pe-hover)] text-[var(--pe-accent-strong)]",
+              )}
             >
-              {t(currentLang, "dismiss")}
+              <ClipboardPaste className="h-3.5 w-3.5" />
             </button>
+            {contextText && (
+              <button
+                type="button"
+                onClick={() => {
+                  void setClipboardText(contextText)
+                    .then(() => {
+                      setCopiedFlash(true);
+                      window.setTimeout(() => setCopiedFlash(false), 1800);
+                    })
+                    .catch(() => undefined);
+                }}
+                title={t(currentLang, "copyContext")}
+                aria-label={t(currentLang, "copyContext")}
+                className="rounded-md p-1.5 text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-accent-strong)]"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => void refresh()}
-              className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]"
+              onClick={() => {
+                void refresh().then((ok) => {
+                  if (!ok) {
+                    setContextRefreshFailed(true);
+                    window.setTimeout(() => setContextRefreshFailed(false), 2000);
+                  }
+                });
+              }}
+              title={t(currentLang, "refreshContext")}
+              aria-label={t(currentLang, "refreshContext")}
+              className="rounded-md p-1.5 text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-accent-strong)]"
             >
-              {t(currentLang, "refresh")}
+              <RefreshCw className="h-3.5 w-3.5" />
             </button>
+            {contextText && (
+              <button
+                type="button"
+                onClick={clearContext}
+                title={t(currentLang, "dismiss")}
+                aria-label={t(currentLang, "dismiss")}
+                className="rounded-md p-1.5 text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-rose-strong)]"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Manual paste panel */}
+        {pasteOpen && (
+          <div className="border-b border-[var(--pe-border-faint)] bg-[var(--pe-bg-2)] px-3 py-2">
+            <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--pe-accent-strong)]">
+              {t(currentLang, "pasteManualTitle")}
+            </div>
+            <textarea
+              value={pasteDraft}
+              onChange={(e) => setPasteDraft(e.target.value)}
+              onKeyDown={(e) => {
+                // Stop propagation so the global handlers (Esc dismisses the
+                // window, Ctrl+Enter auto-inserts) do not fire for the panel.
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const text = pasteDraft.trim();
+                  if (text) {
+                    setManualContext(text);
+                    setPasteOpen(false);
+                  }
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setPasteOpen(false);
+                }
+              }}
+              rows={3}
+              placeholder={t(currentLang, "pasteManualPlaceholder")}
+              className={cn(
+                "w-full resize-none rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-2.5 py-2 text-[12px] leading-relaxed text-[var(--pe-text-strong)] placeholder:text-[var(--pe-text-faint)] outline-none transition-colors focus:border-cyan-400/40",
+                "font-mono",
+              )}
+              autoFocus
+              spellCheck={false}
+            />
+            <div className="mt-1.5 flex items-center justify-between">
+              <span className="text-[10px] text-[var(--pe-text-faint)]">
+                {t(currentLang, "pasteManualHint")}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPasteOpen(false)}
+                  className="rounded-lg px-2.5 py-1 text-[11px] text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]"
+                >
+                  {t(currentLang, "cancel")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = pasteDraft.trim();
+                    if (text) {
+                      setManualContext(text);
+                      setPasteOpen(false);
+                    }
+                  }}
+                  disabled={!pasteDraft.trim()}
+                  className="rounded-lg bg-cyan-500/80 px-2.5 py-1 text-[11px] font-medium text-zinc-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-[var(--pe-hover)] disabled:text-[var(--pe-text-faint)]"
+                >
+                  {t(currentLang, "useText")}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1084,6 +1503,23 @@ export function SpotlightWindow() {
               spellCheck={false}
               disabled={isStreaming}
             />
+            <button
+              type="button"
+              onClick={() => void startScreenCapture()}
+              disabled={isStreaming || captureLoading}
+              title={t(currentLang, "screenCapture")}
+              className={cn(
+                "absolute bottom-2.5 right-12 flex h-8 w-8 items-center justify-center rounded-lg text-[var(--pe-text-muted)] transition-colors",
+                "hover:bg-[var(--pe-hover)] hover:text-[var(--pe-violet-strong)]",
+                (isStreaming || captureLoading) && "opacity-40",
+              )}
+            >
+              {captureLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Camera className="h-4 w-4" />
+              )}
+            </button>
             <button
               type="submit"
               disabled={!canSubmit}
@@ -1152,6 +1588,29 @@ export function SpotlightWindow() {
           </div>
         </div>
 
+        {/* Transient feedback toasts (copy / clipboard read failure) */}
+        {(copiedFlash || contextRefreshFailed) && (
+          <div className="pointer-events-none absolute left-1/2 top-2 z-50 -translate-x-1/2">
+            <div
+              className={cn(
+                "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium shadow-lg",
+                copiedFlash
+                  ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-400 shadow-emerald-500/10"
+                  : "border-rose-400/30 bg-rose-400/10 text-rose-400 shadow-rose-500/10",
+              )}
+            >
+              {copiedFlash ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              {copiedFlash
+                ? t(currentLang, "copiedToClipboard")
+                : t(currentLang, "clipboardUnavailable")}
+            </div>
+          </div>
+        )}
+
         {/* Response */}
         {hasResponse && (
           <div className="flex min-h-0 flex-1 flex-col px-3 pb-3">
@@ -1161,15 +1620,24 @@ export function SpotlightWindow() {
               status={status}
               error={error}
               lang={currentLang}
+              model={model}
+              chatTitle={
+                conversations.find(
+                  (conversation) => conversation.id === activeConversationId,
+                )?.title
+              }
               onStop={() => void stop()}
               onNewChat={newChat}
               onAutoInsertSuccess={clearOverlayState}
+              onRegenerate={() => void regenerate()}
+              onEditPrompt={editPrompt}
               chats={{
                 conversations,
                 activeId: activeConversationId,
                 onSelect: selectConversation,
                 onRename: renameConversation,
                 onDelete: (id) => void deleteConversation(id),
+                onTogglePin: togglePinned,
               }}
             />
           </div>
@@ -1294,6 +1762,18 @@ export function SpotlightWindow() {
           saveSettings(s);
         }}
       />
+
+      {captureOpen && (
+        <ScreenCaptureOverlay
+          screens={capturedScreens}
+          lang={currentLang}
+          onCapture={(mime, dataUrl) => {
+            setContextImage({ mime, dataUrl });
+            setCaptureOpen(false);
+          }}
+          onClose={() => setCaptureOpen(false)}
+        />
+      )}
     </div>
   );
 }

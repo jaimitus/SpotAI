@@ -1,16 +1,17 @@
 //! Tauri IPC commands and global shortcut lifecycle for SpotAI.
 
 use crate::ai::providers::{
-    default_cloud_models, fetch_lmstudio_models as query_lmstudio_models,
+    default_cloud_models, delete_ollama_model, fetch_lmstudio_models as query_lmstudio_models,
     fetch_ollama_models, fetch_openai_compatible_models as query_openai_compatible_models,
-    stream_prompt, AiHttpClient, ChatMessage, ModelInfo, PromptRequest, ProviderError,
-    DEFAULT_LMSTUDIO_HOST, DEFAULT_OLLAMA_HOST,
+    ollama_ps, pull_ollama_model, stream_prompt, AiHttpClient, ChatMessage, ModelInfo,
+    OllamaPsModel, PromptRequest, ProviderError, DEFAULT_LMSTUDIO_HOST, DEFAULT_OLLAMA_HOST,
 };
 use crate::ai::stream::ActiveStream;
 use crate::{native_input, secure_store};
 use arboard::Clipboard;
 use parking_lot::Mutex;
 use serde::Serialize;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Position, State};
@@ -480,6 +481,143 @@ pub fn export_settings_to_file(path: String, content: String) -> Result<(), Stri
 #[tauri::command]
 pub fn import_settings_from_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|error| error.to_string())
+}
+
+/// Generic file writer used by the chat Markdown export.
+#[tauri::command]
+pub fn write_text_to_file(path: String, content: String) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("A destination path is required".into());
+    }
+    std::fs::write(&path, content).map_err(|error| error.to_string())
+}
+
+/// Pulls a model into the local Ollama server.
+#[tauri::command]
+pub async fn ollama_pull_model(
+    client: State<'_, AiHttpClient>,
+    host: Option<String>,
+    name: String,
+) -> Result<(), String> {
+    pull_ollama_model(&client.0, host.as_deref().unwrap_or(DEFAULT_OLLAMA_HOST), &name)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Deletes a model from the local Ollama server.
+#[tauri::command]
+pub async fn ollama_delete_model(
+    client: State<'_, AiHttpClient>,
+    host: Option<String>,
+    name: String,
+) -> Result<(), String> {
+    delete_ollama_model(&client.0, host.as_deref().unwrap_or(DEFAULT_OLLAMA_HOST), &name)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Lists models currently loaded in memory (RAM/VRAM usage) via `ollama ps`.
+#[tauri::command]
+pub async fn fetch_ollama_ps(
+    client: State<'_, AiHttpClient>,
+    host: Option<String>,
+) -> Result<Vec<OllamaPsModel>, String> {
+    ollama_ps(&client.0, host.as_deref().unwrap_or(DEFAULT_OLLAMA_HOST))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapturedScreen {
+    pub id: String,
+    pub name: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub data_url: String,
+}
+
+/// Captures every monitor as a PNG data URL (used by the region capture flow).
+#[tauri::command]
+pub async fn capture_screens() -> Result<Vec<CapturedScreen>, String> {
+    tauri::async_runtime::spawn_blocking(|| -> Result<Vec<CapturedScreen>, String> {
+        use base64::Engine;
+        let monitors = xcap::Monitor::all().map_err(|error| error.to_string())?;
+        let mut screens = Vec::new();
+        for monitor in monitors {
+            let image = monitor.capture_image().map_err(|error| error.to_string())?;
+            let mut buffer = Vec::new();
+            {
+                let mut cursor = std::io::Cursor::new(&mut buffer);
+                image
+                    .write_to(&mut cursor, image::ImageFormat::Png)
+                    .map_err(|error| error.to_string())?;
+            }
+            let encoded = base64::engine::general_purpose::STANDARD.encode(&buffer);
+            let to_string_err = |error: xcap::XCapError| error.to_string();
+            screens.push(CapturedScreen {
+                id: monitor.id().map_err(to_string_err)?.to_string(),
+                name: monitor.name().map_err(to_string_err)?,
+                x: monitor.x().map_err(to_string_err)?,
+                y: monitor.y().map_err(to_string_err)?,
+                width: monitor.width().map_err(to_string_err)?,
+                height: monitor.height().map_err(to_string_err)?,
+                data_url: format!("data:image/png;base64,{encoded}"),
+            });
+        }
+        Ok(screens)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Fixed, always-on quick actions triggered by dedicated global shortcuts. These
+/// are independent from the user-configurable toggle shortcut and read the
+/// current clipboard text into the request.
+const QUICK_ACTIONS: &[(&str, &str)] = &[
+    ("Ctrl+Shift+T", "translate"),
+    ("Ctrl+Shift+R", "refactor"),
+    ("Ctrl+Shift+K", "summarize"),
+];
+
+static REGISTERED_QUICK_ACTIONS: OnceLock<Vec<(Shortcut, &'static str)>> = OnceLock::new();
+
+/// Registers the dedicated quick-action shortcuts (called once at startup).
+pub fn register_quick_actions(app: &AppHandle) {
+    let mut registered = Vec::new();
+    for (text, action) in QUICK_ACTIONS {
+        if let Ok(shortcut) = text.parse::<Shortcut>() {
+            if app.global_shortcut().register(shortcut).is_ok() {
+                registered.push((shortcut, *action));
+            }
+        }
+    }
+    let _ = REGISTERED_QUICK_ACTIONS.set(registered);
+}
+
+/// Returns the quick action id matching a shortcut, if any.
+pub fn quick_action_for(shortcut: &Shortcut) -> Option<&'static str> {
+    REGISTERED_QUICK_ACTIONS
+        .get()?
+        .iter()
+        .find(|(registered, _)| registered == shortcut)
+        .map(|(_, action)| *action)
+}
+
+/// Fires a quick action: reads the clipboard, emits `quick-action` to the UI and
+/// reveals the window with the prepared prompt.
+pub fn dispatch_quick_action(app: &AppHandle, action: &str) {
+    let text = Clipboard::new()
+        .ok()
+        .and_then(|mut clipboard| clipboard.get_text().ok())
+        .unwrap_or_default();
+    let _ = app.emit(
+        "quick-action",
+        serde_json::json!({ "action": action, "text": text }),
+    );
+    show_window_internal(app, true);
 }
 
 #[tauri::command]

@@ -75,6 +75,21 @@ export interface CustomProvider {
   defaultModel?: string;
 }
 
+export interface PromptTemplate {
+  id: string;
+  label: string;
+  prompt: string;
+}
+
+export type SystemActionId =
+  | "new"
+  | "theme"
+  | "settings"
+  | "hide"
+  | "clear"
+  | "capture"
+  | "incognito";
+
 export interface AppSettings {
   language: Language;
   theme?: ThemePreference;
@@ -88,12 +103,38 @@ export interface AppSettings {
   maxTokens: number;
   customActions: CustomAction[];
   customProviders: CustomProvider[];
+  promptTemplates?: PromptTemplate[];
   autostart?: boolean;
+  /** When enabled, quick-action results are inserted into the previous app
+   *  automatically; when disabled they are only copied to the clipboard. */
+  autoInsertQuickActions?: boolean;
 }
 
 export interface HealthStatus {
   ollama: boolean;
   ollamaVersion?: string | null;
+}
+
+export interface CapturedScreen {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  dataUrl: string;
+}
+
+export interface QuickActionPayload {
+  action: string;
+  text: string;
+}
+
+export interface OllamaPsModel {
+  name: string;
+  size: number;
+  sizeVram: number;
+  expiresAt?: string | null;
 }
 
 export interface ShortcutStatus {
@@ -124,6 +165,8 @@ export interface Conversation {
   title: string;
   /** True once the user has manually renamed the chat; auto-titles stop updating. */
   renamed?: boolean;
+  /** Pinned conversations float to the top of the chat list. */
+  pinned?: boolean;
   createdAt: number;
   updatedAt: number;
   messages: ChatMessage[];

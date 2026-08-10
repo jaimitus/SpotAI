@@ -2,13 +2,16 @@ import type {
   ApiKeyStatus,
   ApiKeys,
   AppSettings,
+  CapturedScreen,
   HealthStatus,
   ModelInfo,
+  OllamaPsModel,
   PromptRequest,
+  QuickActionPayload,
   ShortcutStatus,
   TokenEvent,
 } from "../types";
-import { BUILTIN_CLOUD_MODELS } from "./prompts";
+import { BUILTIN_CLOUD_MODELS, DEFAULT_PROMPT_TEMPLATES } from "./prompts";
 
 const SETTINGS_KEY = "spotai.settings.v1";
 
@@ -51,6 +54,45 @@ export async function listenCapturedContext(
   if (!isTauri()) return () => undefined;
   const { listen } = await import("@tauri-apps/api/event");
   return listen<string>("context-captured", (event) => handler(event.payload));
+}
+
+export async function listenQuickAction(
+  handler: (payload: QuickActionPayload) => void,
+): Promise<Unlisten> {
+  if (!isTauri()) return () => undefined;
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<QuickActionPayload>("quick-action", (event) =>
+    handler(event.payload),
+  );
+}
+
+export async function captureScreens(): Promise<CapturedScreen[]> {
+  if (!isTauri()) return [];
+  return invoke<CapturedScreen[]>("capture_screens");
+}
+
+export async function ollamaPullModel(
+  name: string,
+  host?: string,
+): Promise<void> {
+  await invoke("ollama_pull_model", { name, host: host ?? null });
+}
+
+export async function ollamaDeleteModel(
+  name: string,
+  host?: string,
+): Promise<void> {
+  await invoke("ollama_delete_model", { name, host: host ?? null });
+}
+
+export async function fetchOllamaPs(host?: string): Promise<OllamaPsModel[]> {
+  try {
+    return await invoke<OllamaPsModel[]>("fetch_ollama_ps", {
+      host: host ?? null,
+    });
+  } catch {
+    return [];
+  }
 }
 
 export async function getClipboardText(): Promise<string> {
@@ -183,7 +225,9 @@ export function loadSettings(): AppSettings {
     maxTokens: 4096,
     customActions: [],
     customProviders: [],
+    promptTemplates: DEFAULT_PROMPT_TEMPLATES,
     autostart: false,
+    autoInsertQuickActions: true,
   };
   try {
     const value = localStorage.getItem(SETTINGS_KEY);
@@ -234,6 +278,22 @@ export async function openExternalUrl(url: string): Promise<void> {
 
 export async function exportSettingsToFile(path: string, content: string): Promise<void> {
   await invoke("export_settings_to_file", { path, content });
+}
+
+/** Writes arbitrary text (e.g. a Markdown chat export) to a picked path. */
+export async function exportTextToFile(path: string, content: string): Promise<void> {
+  await invoke("write_text_to_file", { path, content });
+}
+
+/** Browser fallback: downloads the text as a file through an anchor click. */
+export function downloadTextFile(filename: string, content: string): void {
+  const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export async function importSettingsFromFile(path: string): Promise<string> {

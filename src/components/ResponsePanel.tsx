@@ -2,15 +2,26 @@ import {
   Check,
   ClipboardCopy,
   CornerDownLeft,
+  Download,
   Loader2,
   MessageSquarePlus,
+  Pencil,
+  RefreshCw,
   Square,
+  Volume2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import { autoInsertText, setClipboardText } from "../lib/tauri";
+import {
+  autoInsertText,
+  downloadTextFile,
+  exportTextToFile,
+  isTauri,
+  pickSavePath,
+  setClipboardText,
+} from "../lib/tauri";
 import { t } from "../lib/i18n";
 import type { ChatMessage, Conversation, Language, StreamStatus } from "../types";
 import { cn } from "../utils/cn";
@@ -22,6 +33,7 @@ export interface ChatsMenuData {
   onSelect: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
+  onTogglePin: (id: string) => void;
 }
 
 interface ResponsePanelProps {
@@ -30,10 +42,43 @@ interface ResponsePanelProps {
   status: StreamStatus;
   error: string | null;
   lang?: Language;
+  model?: string;
+  chatTitle?: string;
   onStop: () => void;
   onNewChat: () => void;
   onAutoInsertSuccess?: () => void;
+  onRegenerate?: () => void;
+  onEditPrompt?: (content: string) => void;
   chats?: ChatsMenuData;
+}
+
+/** Rough token estimate (English ≈ 4 chars/token) for the response footer. */
+function estimateTokens(content: string): number {
+  return Math.max(1, Math.ceil(content.length / 4));
+}
+
+function shortModel(model: string): string {
+  return model.includes(":")
+    ? model.split(":")[0]
+    : model.replace(/-latest$/, "");
+}
+
+function buildMarkdown(title: string, messages: ChatMessage[]): string {
+  const lines: string[] = [
+    `# ${title || "SpotAI conversation"}`,
+    "",
+    `_Exported ${new Date().toISOString()}_`,
+    "",
+  ];
+  for (const message of messages) {
+    lines.push(
+      message.role === "user" ? "## 👤 User" : "## 🤖 Assistant",
+      "",
+      message.content,
+      "",
+    );
+  }
+  return lines.join("\n");
 }
 
 function CodeBlock({ children, lang }: { children: React.ReactNode; lang?: Language }) {
@@ -131,6 +176,14 @@ function Markdown({
   );
 }
 
+const SPEECH_LANGS: Record<string, string> = {
+  en: "en-US",
+  es: "es-ES",
+  de: "de-DE",
+  pt: "pt-PT",
+  fr: "fr-FR",
+};
+
 function AssistantMessage({
   content,
   streaming,
@@ -141,6 +194,8 @@ function AssistantMessage({
   lang: Language;
 }) {
   const [copied, setCopied] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const ttsSupported = typeof window !== "undefined" && "speechSynthesis" in window;
 
   const handleCopy = async () => {
     await setClipboardText(content);
@@ -148,22 +203,60 @@ function AssistantMessage({
     setTimeout(() => setCopied(false), 1600);
   };
 
+  const toggleSpeech = () => {
+    if (!ttsSupported) return;
+    if (speaking) {
+      window.speechSynthesis.cancel();
+      setSpeaking(false);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(content);
+    utterance.lang = SPEECH_LANGS[lang] ?? "en-US";
+    utterance.rate = 1;
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    // Any previously queued speech is dropped so only this reply is read.
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    setSpeaking(true);
+  };
+
+  useEffect(() => () => window.speechSynthesis?.cancel(), []);
+
   return (
     <div className="group/msg relative">
       {!streaming && (
-        <button
-          type="button"
-          onClick={() => void handleCopy()}
-          title={t(lang, "copy")}
-          aria-label={t(lang, "copy")}
-          className="absolute right-0 top-0 z-10 rounded-md border border-[var(--pe-code-border)] bg-[#0c0e14]/90 p-1.5 text-[var(--pe-text-muted)] opacity-0 shadow-lg transition hover:text-cyan-300 focus-visible:opacity-100 group-hover/msg:opacity-100"
-        >
-          {copied ? (
-            <Check className="h-3 w-3 text-[var(--pe-emerald-strong)]" />
-          ) : (
-            <ClipboardCopy className="h-3 w-3" />
+        <div className="absolute right-0 top-0 z-10 flex items-center gap-1">
+          {ttsSupported && content.trim() && (
+            <button
+              type="button"
+              onClick={toggleSpeech}
+              title={t(lang, speaking ? "stopSpeaking" : "readAloud")}
+              aria-label={t(lang, speaking ? "stopSpeaking" : "readAloud")}
+              className="rounded-md border border-[var(--pe-code-border)] bg-[#0c0e14]/90 p-1.5 text-[var(--pe-text-muted)] opacity-0 shadow-lg transition hover:text-cyan-300 focus-visible:opacity-100 group-hover/msg:opacity-100"
+            >
+              <Volume2
+                className={cn(
+                  "h-3 w-3",
+                  speaking && "animate-pulse text-[var(--pe-accent-strong)]",
+                )}
+              />
+            </button>
           )}
-        </button>
+          <button
+            type="button"
+            onClick={() => void handleCopy()}
+            title={t(lang, "copy")}
+            aria-label={t(lang, "copy")}
+            className="rounded-md border border-[var(--pe-code-border)] bg-[#0c0e14]/90 p-1.5 text-[var(--pe-text-muted)] opacity-0 shadow-lg transition hover:text-cyan-300 focus-visible:opacity-100 group-hover/msg:opacity-100"
+          >
+            {copied ? (
+              <Check className="h-3 w-3 text-[var(--pe-emerald-strong)]" />
+            ) : (
+              <ClipboardCopy className="h-3 w-3" />
+            )}
+          </button>
+        </div>
       )}
       <Markdown content={content} lang={lang} streaming={streaming} />
     </div>
@@ -176,12 +269,17 @@ export function ResponsePanel({
   status,
   error,
   lang = "en",
+  model,
+  chatTitle,
   onStop,
   onNewChat,
   onAutoInsertSuccess,
+  onRegenerate,
+  onEditPrompt,
   chats,
 }: ResponsePanelProps) {
   const [insertError, setInsertError] = useState<string | null>(null);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -211,6 +309,46 @@ export function ResponsePanel({
     }
   };
 
+  const handleExport = async () => {
+    setExportMsg(null);
+    try {
+      const markdown = buildMarkdown(chatTitle || "", messages);
+      if (isTauri()) {
+        const path = await pickSavePath("spotai-chat.md");
+        if (!path) return;
+        await exportTextToFile(path, markdown);
+      } else {
+        downloadTextFile("spotai-chat.md", markdown);
+      }
+      setExportMsg(t(lang, "chatExported"));
+    } catch (cause) {
+      setExportMsg(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const lastMessage = messages[messages.length - 1];
+  const canRegenerate =
+    Boolean(onRegenerate) &&
+    status !== "streaming" &&
+    lastMessage?.role === "assistant";
+  const lastAssistant =
+    lastMessage?.role === "assistant" ? lastMessage.content : lastAssistantContent;
+  const tokenCount =
+    status === "done" && current
+      ? estimateTokens(current)
+      : lastAssistant
+        ? estimateTokens(lastAssistant)
+        : 0;
+  // Once a completed reply is appended to `messages`, the transient `current`
+  // buffer mirrors it — skip it so the answer is not rendered twice.
+  const showTransient =
+    Boolean(current || status !== "idle") &&
+    !(
+      current &&
+      lastMessage?.role === "assistant" &&
+      current === lastMessage.content
+    );
+
   return (
     <div
       className={cn(
@@ -238,6 +376,12 @@ export function ResponsePanel({
           ) : (
             <span>{t(lang, "response")}</span>
           )}
+          {tokenCount > 0 && status === "done" && (
+            <span className="text-[var(--pe-text-faint)]">
+              · ≈{tokenCount.toLocaleString()} {t(lang, "tokens")}
+              {model ? ` · ${shortModel(model)}` : ""}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-1">
@@ -249,6 +393,27 @@ export function ResponsePanel({
             >
               <Square className="h-3 w-3 fill-current" />
               {t(lang, "stop")}
+            </button>
+          )}
+          {canRegenerate && (
+            <button
+              type="button"
+              onClick={onRegenerate}
+              title={t(lang, "regenerate")}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--pe-text-soft)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]"
+            >
+              <RefreshCw className="h-3 w-3" />
+              {t(lang, "regenerate")}
+            </button>
+          )}
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void handleExport()}
+              title={t(lang, "exportChat")}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--pe-text-soft)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]"
+            >
+              <Download className="h-3 w-3" />
             </button>
           )}
           {canAutoInsert && (
@@ -270,6 +435,7 @@ export function ResponsePanel({
               onSelect={chats.onSelect}
               onRename={chats.onRename}
               onDelete={chats.onDelete}
+              onTogglePin={chats.onTogglePin}
               onNewChat={onNewChat}
             />
           )}
@@ -299,12 +465,30 @@ export function ResponsePanel({
             {t(lang, "autoInsertFailed")}: {insertError}. {t(lang, "remainsOnClipboard")}
           </div>
         )}
+        {exportMsg && (
+          <div className="rounded-lg border border-cyan-400/20 bg-cyan-400/5 px-3 py-2 text-[12px] text-[var(--pe-accent-strong)]">
+            {exportMsg}
+          </div>
+        )}
 
         {messages.map((message, index) =>
           message.role === "user" ? (
-            <div key={index} className="flex justify-end">
-              <div className="max-w-[85%] whitespace-pre-wrap rounded-xl rounded-tr-sm border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-[12px] leading-relaxed text-[var(--pe-accent-strong)]">
-                {message.content}
+            <div key={index} className="group/msg flex justify-end">
+              <div className="relative max-w-[85%]">
+                {onEditPrompt && (
+                  <button
+                    type="button"
+                    onClick={() => onEditPrompt(message.content)}
+                    title={t(lang, "editPrompt")}
+                    aria-label={t(lang, "editPrompt")}
+                    className="absolute -left-8 top-1 z-10 rounded-md border border-[var(--pe-code-border)] bg-[var(--pe-bg-2)] p-1.5 text-[var(--pe-text-muted)] opacity-0 shadow-lg transition hover:text-[var(--pe-accent-strong)] focus-visible:opacity-100 group-hover/msg:opacity-100"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+                <div className="whitespace-pre-wrap rounded-xl rounded-tr-sm border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-[12px] leading-relaxed text-[var(--pe-accent-strong)]">
+                  {message.content}
+                </div>
               </div>
             </div>
           ) : (
@@ -316,7 +500,7 @@ export function ResponsePanel({
           ),
         )}
 
-        {(current || status !== "idle") && (
+        {showTransient && (
           <div className="flex">
             <div className="min-w-0 flex-1">
               {current ? (

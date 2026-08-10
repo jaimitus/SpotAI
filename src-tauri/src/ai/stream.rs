@@ -1,6 +1,7 @@
 //! Cancellation state for the single active LLM stream.
 
 use parking_lot::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::Notify;
 
@@ -11,22 +12,29 @@ pub struct StreamCancel {
 
 #[derive(Default)]
 struct CancelInner {
-    cancelled: std::sync::atomic::AtomicBool,
+    cancelled: AtomicBool,
+    /// Number of characters already delivered to the user. Retry logic uses
+    /// this to avoid re-running a stream that already produced output.
+    emitted: AtomicUsize,
     notify: Notify,
 }
 
 impl StreamCancel {
     pub fn cancel(&self) {
-        self.inner
-            .cancelled
-            .store(true, std::sync::atomic::Ordering::Release);
+        self.inner.cancelled.store(true, Ordering::Release);
         self.inner.notify.notify_waiters();
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.inner
-            .cancelled
-            .load(std::sync::atomic::Ordering::Acquire)
+        self.inner.cancelled.load(Ordering::Acquire)
+    }
+
+    pub fn note_emitted(&self, chars: usize) {
+        self.inner.emitted.fetch_add(chars, Ordering::Relaxed);
+    }
+
+    pub fn emitted_count(&self) -> usize {
+        self.inner.emitted.load(Ordering::Relaxed)
     }
 
     pub async fn cancelled(&self) {

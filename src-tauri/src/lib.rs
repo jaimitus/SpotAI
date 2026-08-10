@@ -40,6 +40,10 @@ pub fn run() {
                 .with_handler(|app, shortcut, event| {
                     // Capture after release so the physical Alt key cannot interfere with Ctrl+C.
                     if event.state() == ShortcutState::Released {
+                        if let Some(action) = commands::quick_action_for(shortcut) {
+                            commands::dispatch_quick_action(app, action);
+                            return;
+                        }
                         let active = app
                             .state::<commands::ShortcutRegistration>()
                             .active
@@ -79,6 +83,11 @@ pub fn run() {
             commands::open_external_url,
             commands::export_settings_to_file,
             commands::import_settings_from_file,
+            commands::write_text_to_file,
+            commands::ollama_pull_model,
+            commands::ollama_delete_model,
+            commands::fetch_ollama_ps,
+            commands::capture_screens,
         ])
         .setup(|app| {
             let shortcut_status = app.state::<commands::ShortcutRegistration>();
@@ -88,6 +97,7 @@ pub fn run() {
             {
                 tracing::error!(%error);
             }
+            commands::register_quick_actions(app.handle());
 
             let show_item =
                 MenuItem::with_id(app, "show", "Show SpotAI", true, None::<&str>)?;

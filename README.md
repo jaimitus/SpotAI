@@ -1,4 +1,4 @@
-# SpotAI v1.2.1 🚀
+# SpotAI v1.2.2 🚀
 
 > **The ultra-fast, Raycast-inspired AI Spotlight launcher for Windows.**  
 > Access local LLMs (Ollama, LM Studio) or cloud models (OpenAI, Anthropic, OpenRouter, DeepSeek) anywhere with a single shortcut (`Alt + Space`).
@@ -6,11 +6,28 @@
 ![SpotAI Interface](SpotAI_UI.png)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-orange.svg?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/jaimitus)
-[![Release](https://img.shields.io/badge/version-1.2.1-cyan.svg)](https://github.com/jaimitus/SpotAI/releases)
+[![Release](https://img.shields.io/badge/version-1.2.2-cyan.svg)](https://github.com/jaimitus/SpotAI/releases)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-blue.svg)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Backend-Rust-orange.svg)](https://www.rust-lang.org)
 [![React](https://img.shields.io/badge/Frontend-React%2019-61dafb.svg)](https://reactjs.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+---
+
+## 🌟 What's New in v1.2.2
+
+- 📸 **Screen Region Capture**: Click the camera button (or run `/captura`), drag a rectangle over any monitor like a Snipping Tool, and the crop goes straight to a vision model as image context.
+- 🗣️ **Text-to-Speech**: A 🔊 button on every assistant message reads the reply aloud with native Windows synthesis — offline, free, no API.
+- 🧠 **Ollama Model Manager**: In Settings → Providers, see models currently loaded in memory with RAM/VRAM usage (`ollama ps`), **pull** new models by name, or **delete** them — all without leaving the app.
+- ⌨️ **Dedicated Quick Actions**: `Ctrl+Shift+T` (translate), `Ctrl+Shift+R` (refactor), `Ctrl+Shift+K` (summarize) read your clipboard and open SpotAI with the action + text ready. On completion the answer is **auto-inserted into the previous app** — or only copied to the clipboard if you disable auto-insert in Settings.
+- 🕶️ **Incognito Mode**: A toggle that stops SpotAI from saving chats or history.
+- 🔍 **Global Conversation Search**: The chat list search now also matches text *inside* messages, not just titles.
+- 📚 **Prompt Library**: Manage reusable prompt templates in Settings and run them from the `/` palette.
+- ⚙️ **System Commands in the `/` Palette**: `/nuevo`, `/tema`, `/captura`, `/incognito`, `/ajustes`, `/ocultar`, `/limpiar`…
+- 🧾 **Manual Context Paste**: Paste or type context by hand, with the capture timestamp shown in the context strip — plus a scrollable preview and always-available refresh/copy/dismiss buttons.
+- 🤖 **Smarter Context Strip**: The captured-context bar is now always visible (with refresh), shows a live scrollable preview, and reports clipboard read failures.
+- 📋 **Automatic Changelog**: Release notes are generated from conventional commits (run `npm run changelog`).
+- 🧪 **More Tests**: Rust tests for `ollama ps` parsing & retry policy, Vitest for pinned conversations, and Playwright E2E (theme, slash palette, capture button) running in CI.
 
 ---
 
@@ -109,11 +126,11 @@
 
 ## 🚀 Quick Download & Installation
 
-Download the latest version from [GitHub Releases](https://github.com/jaimitus/SpotAI/releases/tag/v1.2.1):
+Download the latest version from [GitHub Releases](https://github.com/jaimitus/SpotAI/releases/tag/v1.2.2):
 
 - 🗂️ **Portable (no install)**: `SpotAI-Portable.zip` — unzip and run `SpotAI.exe` directly, nothing to install (requires Windows 10/11 with WebView2).
-- ⚡ **Installer (NSIS)**: `SpotAI_1.2.1_x64-setup.exe`
-- 📦 **Installer (MSI)**: `SpotAI_1.2.1_x64_en-US.msi`
+- ⚡ **Installer (NSIS)**: `SpotAI_1.2.2_x64-setup.exe`
+- 📦 **Installer (MSI)**: `SpotAI_1.2.2_x64_en-US.msi`
 
 *(All assets — installers, portable zip, updater signatures and `latest.json` — are attached to the GitHub Release. Note: the portable build does not auto-update; use an installer if you want the built-in updater.)*
 
