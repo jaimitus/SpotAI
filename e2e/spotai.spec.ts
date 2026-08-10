@@ -158,6 +158,14 @@ function buildTauriMock(
           voiceState = { ...voiceState, recording: true };
           return null;
         case "set_voice_engine":
+          // Mirror the Rust backend: the engine preference is applied
+          // immediately and reported by voice_state from then on (the frontend
+          // syncs it at startup and whenever Settings is saved).
+          voiceState = {
+            ...voiceState,
+            engine: args.engine === "whisper" ? "whisper" : "native",
+          };
+          return null;
         case "transcribe_voice_wav":
           return null;
         case "stop_voice_capture":
@@ -249,6 +257,37 @@ test("settings lists microphones and persists the chosen one", async ({ page }) 
     JSON.parse(localStorage.getItem("spotai.settings.v1") || "{}"),
   );
   expect(stored.selectedMic).toBe("Headset Mic");
+});
+
+test("the selected whisper engine is synced to the backend at startup", async ({ page }) => {
+  // A user who picked Whisper in Settings (persisted across restarts). The
+  // mock starts on the NATIVE engine exactly like the Rust backend does on
+  // every launch — so if the boot sync works, the engine must flip to whisper
+  // without the user touching Settings again.
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "spotai.settings.v1",
+      JSON.stringify({ voiceEngine: "whisper" }),
+    );
+  });
+  await page.addInitScript(buildTauriMock("native"));
+  await page.goto("/");
+
+  // The boot effect pushes the persisted preference to the backend: voice_state
+  // must report whisper. expect.poll retries because the sync is async and the
+  // settings load happens on mount.
+  await expect
+    .poll(async () => {
+      const state = await page.evaluate(() =>
+        (window as unknown as {
+          __TAURI_INTERNALS__: {
+            invoke: (cmd: string) => Promise<{ engine: string }>;
+          };
+        }).__TAURI_INTERNALS__.invoke("voice_state"),
+      );
+      return state.engine;
+    })
+    .toBe("whisper");
 });
 
 test("microphone button starts recording when the whisper engine is configured", async ({ page }) => {
