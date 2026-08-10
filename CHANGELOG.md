@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Auto-generated from git history with `npm run changelog:all`.
 
+## [v1.3.1] - 2026-08-10
+
+### ✨ New Features
+- 🕐 **Voice Session Indicators**: The recording bar shows when the capture started (localized `started at HH:MM:SS`) plus a live elapsed counter, and the "Transcribing…" bar shows the total processed duration — so old captures are easy to tell apart.
+- ⚠️ **Microphone Permission Warning**: When the Windows native recognizer fails with "speech privacy policy was not accepted", Settings shows an actionable banner (with a friendly toast instead of the cryptic OS error) that clears automatically once a transcription succeeds.
+- 🧹 **Automatic WAV Cleanup**: Recorded WAVs are deleted after transcription on every path (success AND failure), the native engine no longer writes an unused WAV at all, and a startup sweep removes stale voice artifacts older than 24h — the temp folder can never fill the disk.
+- 🔄 **Instant Releases**: The Release workflow now publishes the GitHub release automatically when the build finishes (no manual draft step).
+### 🐛 Bug Fixes
+- 🎯 **Ghost-Click Fix**: A stale `voice-transcribed` error (e.g. the OS recognizer failing while the user is STILL recording) no longer hides the recording bar — the recording state now only resets when the event belongs to the current session.
+
 ## [v1.3.0] - 2026-08-10
 
 ### ✨ New Features
