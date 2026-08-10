@@ -34,7 +34,28 @@ Every version's changes — from v1.0.0 to the latest — live in the versioned 
 - 💬 **Multi-turn Chat**: Conversations with memory, persisted between sessions, with a one-click "New chat".
 - 🚀 **Auto-start with Windows**: Launch SpotAI automatically when you log in (toggle in Settings → General).
 - 🔄 **Automatic Updates**: SpotAI checks GitHub Releases on startup and installs & restarts in one click (Tauri updater, signed).
+- 🎙️ **Voice Input (Dictation)**: Hold `Alt + V` (or press the mic button) to speak and release to transcribe straight into the prompt — no typing.
 - 📦 **Zero Heavy Dependencies**: Lightweight native Windows binary built with Tauri v2 and Rust.
+
+---
+
+## 🎙️ Voice Input (Dictation)
+
+Speak instead of typing: hold **`Alt + V`** (or click the microphone button in the toolbar) to record, then release — the recognised text is injected straight into the prompt, ready to send with `Enter`.
+
+Two transcription engines are available in **Settings → General → Speech-to-text engine**:
+
+- 🪟 **Native (Windows SAPI)** — zero setup. Uses the Windows speech recognizer in live dictation mode with short silence timeouts for instant results.
+- 🧠 **Whisper (whisper.cpp)** — more accurate and multilingual (en/es/de/pt/fr). The first time you pick it, a **~75 MB download** (binary + multilingual model) is offered from Settings; afterwards everything runs **locally and offline**. Recordings are also saved as WAV so the Whisper engine can transcribe them.
+
+### The Whisper install panel (3 phases)
+
+| 1 · Before download | 2 · During download | 3 · Ready |
+| :---: | :---: | :---: |
+| ![Whisper panel before download](visual-test/01-whisper-before.webp) | ![Whisper panel during download](visual-test/02-whisper-during.webp) | ![Whisper panel ready](visual-test/03-whisper-after.webp) |
+| Shows the **Download Whisper model** button until the ~75 MB model is installed. | A live progress bar tracks the binary and model download phases. | A green check confirms **Whisper model ready** with the installed model size. |
+
+> 💡 **Tip**: Whisper runs fully offline after the one-time download. The native engine needs the Windows speech language pack for your language.
 
 ---
 
@@ -55,6 +76,7 @@ Every version's changes — from v1.0.0 to the latest — live in the versioned 
 | Shortcut | Action |
 | :--- | :--- |
 | `Alt + Space` | Show / Hide SpotAI overlay *(configurable in Settings)* |
+| `Alt + V` | Hold to record voice input, release to transcribe into the prompt |
 | `Esc` | Close / Hide SpotAI window |
 | `Enter` | Submit prompt |
 | `Shift + Enter` | Insert new line in prompt box |

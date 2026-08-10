@@ -7,7 +7,7 @@ use crate::ai::providers::{
     OllamaPsModel, PromptRequest, ProviderError, DEFAULT_LMSTUDIO_HOST, DEFAULT_OLLAMA_HOST,
 };
 use crate::ai::stream::ActiveStream;
-use crate::{native_input, secure_store};
+use crate::{native_input, secure_store, voice, whisper};
 use arboard::Clipboard;
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -618,6 +618,84 @@ pub fn dispatch_quick_action(app: &AppHandle, action: &str) {
         serde_json::json!({ "action": action, "text": text }),
     );
     show_window_internal(app, true);
+}
+
+/// Begin microphone capture and return immediately.
+#[tauri::command]
+pub fn start_voice_capture(
+    app: AppHandle,
+    state: State<'_, voice::VoiceState>,
+) -> Result<(), String> {
+    voice::start_capture(&state, app)
+}
+
+/// Stop microphone capture and return the recorded audio file path + metadata.
+#[tauri::command]
+pub fn stop_voice_capture(
+    state: State<'_, voice::VoiceState>,
+) -> Result<VoiceCaptureResult, String> {
+    let (path, duration_secs, engine) = voice::stop_capture(&state)?;
+    Ok(VoiceCaptureResult {
+        path: path.to_string_lossy().to_string(),
+        duration_secs,
+        engine,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceCaptureResult {
+    pub path: String,
+    pub duration_secs: f64,
+    pub engine: voice::VoiceEngine,
+}
+
+/// Update the voice engine preference (Native / Whisper).
+#[tauri::command]
+pub fn set_voice_engine(
+    state: State<'_, voice::VoiceState>,
+    engine: String,
+) -> Result<(), String> {
+    *state.engine.lock() = voice::VoiceEngine::from_str(&engine);
+    Ok(())
+}
+
+/// Returns whether the local Whisper binary + model are installed.
+#[tauri::command]
+pub fn get_whisper_status(
+    app: AppHandle,
+    state: State<'_, whisper::WhisperState>,
+) -> whisper::WhisperStatus {
+    whisper::status(&app, &state)
+}
+
+/// Downloads the whisper-cli binary and model (emits `whisper-progress`).
+#[tauri::command]
+pub async fn install_whisper(
+    app: AppHandle,
+    state: State<'_, whisper::WhisperState>,
+) -> Result<(), String> {
+    whisper::install(app, state.inner()).await
+}
+
+/// Transcribes a recorded WAV file with whisper-cli and emits a
+/// `voice-transcribed` event with the result (or a descriptive error).
+#[tauri::command]
+pub async fn transcribe_voice_wav(app: AppHandle, path: String) -> Result<(), String> {
+    let app_for_thread = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        whisper::transcribe(&app_for_thread, std::path::Path::new(&path))
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let _ = app.emit(
+        "voice-transcribed",
+        serde_json::json!({
+            "text": result.as_ref().ok(),
+            "error": result.as_ref().err(),
+        }),
+    );
+    Ok(())
 }
 
 #[tauri::command]

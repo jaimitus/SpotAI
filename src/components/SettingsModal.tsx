@@ -2,6 +2,7 @@ import {
   ArrowRightLeft,
   BookOpen,
   Box,
+  Check,
   Cloud,
   Cpu,
   Download,
@@ -10,6 +11,7 @@ import {
   EyeOff,
   Globe,
   Loader2,
+  Mic,
   Monitor,
   Moon,
   Pencil,
@@ -39,8 +41,11 @@ import {
   fetchOllamaPs,
   getApiKeyStatus,
   getCustomApiKeyStatus,
+  getWhisperStatus,
   importSettingsFromFile,
+  installWhisper,
   isTauri,
+  listenWhisperProgress,
   ollamaDeleteModel,
   ollamaPullModel,
   openExternalUrl,
@@ -61,6 +66,8 @@ import type {
   Language,
   OllamaPsModel,
   PromptTemplate,
+  WhisperProgressEvent,
+  WhisperStatus,
 } from "../types";
 import { cn } from "../utils/cn";
 
@@ -137,6 +144,15 @@ export function SettingsModal({
   const [installing, setInstalling] = useState(false);
   const [dataMsg, setDataMsg] = useState<string | null>(null);
 
+  // Whisper install state
+  const [whisperStatus, setWhisperStatus] = useState<WhisperStatus>({
+    installed: false,
+    installing: false,
+    modelSize: 0,
+  });
+  const [whisperProgress, setWhisperProgress] = useState<WhisperProgressEvent | null>(null);
+  const [whisperError, setWhisperError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!open) return;
     setDraft({
@@ -167,6 +183,8 @@ export function SettingsModal({
     setDataMsg(null);
     setUpdateState("idle");
     setFoundUpdate(null);
+    setWhisperError(null);
+    void getWhisperStatus().then(setWhisperStatus).catch(() => undefined);
     void (async () => {
       try {
         setKeyStatus(await getApiKeyStatus());
@@ -191,6 +209,39 @@ export function SettingsModal({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // Live whisper download progress.
+  useEffect(() => {
+    if (!open) return;
+    let unlisten: (() => void) | undefined;
+    void listenWhisperProgress((event) => {
+      setWhisperProgress(event);
+      setWhisperStatus((s) => ({ ...s, installing: true }));
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [open]);
+
+  const handleInstallWhisper = async () => {
+    setWhisperError(null);
+    setWhisperStatus((s) => ({ ...s, installing: true }));
+    setWhisperProgress(null);
+    try {
+      await installWhisper();
+      const status = await getWhisperStatus();
+      setWhisperStatus(status);
+      setWhisperProgress(null);
+      // Auto-switch the engine to whisper once it is ready.
+      if (draft.voiceEngine !== "whisper") update("voiceEngine", "whisper");
+    } catch (cause) {
+      setWhisperError(cause instanceof Error ? cause.message : String(cause));
+      setWhisperStatus((s) => ({ ...s, installing: false }));
+      setWhisperProgress(null);
+    }
+  };
 
   // Live-preview the theme while the modal is open (like the language picker),
   // and restore the saved theme if the modal is closed/cancelled. When the
@@ -248,6 +299,13 @@ export function SettingsModal({
         else await disable();
       }
       saveSettings(updated);
+      // Sync the voice engine preference to the Rust backend.
+      try {
+        const { setVoiceEngine: syncVoice } = await import("../lib/tauri");
+        await syncVoice(updated.voiceEngine || "native");
+      } catch {
+        // Non-critical; the backend will get the preference on next restart.
+      }
       await saveApiKeys(keys);
       for (const [id, key] of Object.entries(pendingCustomKeys)) {
         if (key.trim()) await saveCustomApiKey(id, key.trim());
@@ -884,6 +942,141 @@ export function SettingsModal({
                 )}
                 {updateState === "failed" && (
                   <p className="text-[11px] text-[var(--pe-rose-strong)]">{t(currentLang, "updateFailed")}</p>
+                )}
+              </section>
+
+              {/* Voice input */}
+              <section className="space-y-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
+                  <Mic className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>{t(currentLang, "voiceEngine")}</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={draft.voiceEngine !== "whisper"}
+                  onClick={() =>
+                    update(
+                      "voiceEngine",
+                      draft.voiceEngine === "whisper" ? "native" : "whisper",
+                    )
+                  }
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-[var(--pe-border)] bg-[var(--pe-input)] px-3.5 py-2.5 text-left transition hover:bg-[var(--pe-hover)]"
+                >
+                  <span>
+                    <span className="block text-[12px] font-medium text-[var(--pe-text)]">
+                      {draft.voiceEngine !== "whisper"
+                        ? t(currentLang, "voiceNative")
+                        : t(currentLang, "voiceWhisper")}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                      {draft.voiceEngine !== "whisper"
+                        ? t(currentLang, "voiceNativeDesc")
+                        : t(currentLang, "voiceWhisperDesc")}
+                    </span>
+                  </span>
+                  <span
+                    className={cn(
+                      "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
+                      draft.voiceEngine === "whisper"
+                        ? "bg-violet-500/80"
+                        : "bg-[var(--pe-input-hover)]",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+                        draft.voiceEngine === "whisper"
+                          ? "translate-x-[18px]"
+                          : "translate-x-[2px]",
+                      )}
+                    />
+                  </span>
+                </button>
+                <p className="text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                  {t(currentLang, "voiceEngineDesc")}{" "}
+                  <kbd className="rounded border border-[var(--pe-border)] bg-[var(--pe-input)] px-1 py-0.5 font-mono">
+                    Alt+V
+                  </kbd>{" "}
+                  {t(currentLang, "voiceInputStatus")}
+                </p>
+
+                {/* Whisper install status / download */}
+                {draft.voiceEngine === "whisper" && (
+                  <div className="space-y-2 rounded-xl border border-violet-500/20 bg-violet-500/[0.04] p-3.5">
+                    {whisperStatus.installing || whisperProgress ? (
+                      <>
+                        <div className="flex items-center gap-2 text-[11px] text-[var(--pe-violet-strong)]">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          {whisperProgress
+                            ? t(currentLang, "whisperInstalling").replace(
+                                "{0}",
+                                t(
+                                  currentLang,
+                                  whisperProgress.phase === "binary"
+                                    ? "whisperPhaseBinary"
+                                    : "whisperPhaseModel",
+                                ),
+                              )
+                            : t(currentLang, "whisperStarting")}
+                        </div>
+                        {whisperProgress && (
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--pe-hover)]">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-violet-400 to-cyan-400 transition-all duration-200"
+                              style={{
+                                width: `${
+                                  whisperProgress.total > 0
+                                    ? Math.min(
+                                        100,
+                                        (whisperProgress.received /
+                                          whisperProgress.total) *
+                                          100,
+                                      )
+                                    : 0
+                                }%`,
+                              }}
+                            />
+                          </div>
+                        )}
+                        <p className="text-[10px] text-[var(--pe-text-muted)]">
+                          {t(currentLang, "whisperInstallHint")}
+                        </p>
+                      </>
+                    ) : whisperStatus.installed ? (
+                      <>
+                        <div className="flex items-center gap-2 text-[11px] text-[var(--pe-emerald-strong)]">
+                          <Check className="h-3.5 w-3.5" />
+                          {t(currentLang, "whisperDownloaded")}
+                          <span className="font-mono text-[10px] text-[var(--pe-text-muted)]">
+                            {formatBytes(whisperStatus.modelSize)}
+                          </span>
+                        </div>
+                        <p className="text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                          {t(currentLang, "whisperReadyHint")}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                          {t(currentLang, "whisperNotInstalled")}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void handleInstallWhisper()}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-violet-500/90 px-3 py-1.5 text-[11px] font-medium text-zinc-950 transition hover:bg-violet-400"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          {t(currentLang, "downloadWhisper")}
+                        </button>
+                      </>
+                    )}
+                    {whisperError && (
+                      <p className="break-words text-[11px] text-[var(--pe-rose-strong)]">
+                        {t(currentLang, "whisperDownloadFailed")}: {whisperError}
+                      </p>
+                    )}
+                  </div>
                 )}
               </section>
 

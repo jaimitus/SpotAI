@@ -210,6 +210,32 @@ export const translations = {
     copiedToClipboard: "Copied to clipboard",
     quickActionDesc:
       "On (Ctrl+Shift+T/R/K): insert the reply into the previous app automatically. Off: only copy to clipboard.",
+
+    // Voice input
+    voiceInput: "Voice input",
+    voiceInputStatus: "Voice input — hold Alt+V to speak, release to transcribe",
+    recording: "Recording…",
+    recordingHint: "Release Alt+V to stop",
+    transcribing: "Transcribing…",
+    transcribeTimeout: "Transcription timed out. Check your microphone or speech language pack.",
+    voiceEngine: "Speech-to-text engine",
+    voiceEngineDesc: "Choose how voice input is transcribed",
+    voiceNative: "Windows native (built-in)",
+    voiceWhisper: "Whisper (requires download)",
+    voiceNativeDesc: "Uses Windows built-in speech recognition (SAPI) — zero setup, works offline",
+    voiceWhisperDesc: "Download Whisper model for more accurate transcription — requires ~75 MB",
+    downloadWhisper: "Download Whisper model",
+    whisperDownloaded: "Whisper model ready",
+    whisperDownloadFailed: "Download failed",
+    whisperNotInstalled:
+      "Whisper isn't downloaded yet. Install the ~75 MB multilingual model for fast, offline transcription.",
+    whisperInstalling: "Downloading {0}…",
+    whisperStarting: "Starting download…",
+    whisperPhaseBinary: "Whisper binary",
+    whisperPhaseModel: "model",
+    whisperInstallHint: "Keep the window open — this takes a moment.",
+    whisperReadyHint:
+      "Whisper is ready. Recordings are transcribed locally and offline.",
     ollamaManager: "Ollama models",
     loadedModels: "Loaded in memory",
     noLoadedModels: "No models loaded. Run a prompt or pull one below.",
@@ -456,6 +482,32 @@ export const translations = {
     copiedToClipboard: "Copiado al portapapeles",
     quickActionDesc:
       "Activo (Ctrl+Shift+T/R/K): inserta la respuesta en la app anterior. Inactivo: solo copia al portapapeles.",
+
+    // Voice input
+    voiceInput: "Entrada de voz",
+    voiceInputStatus: "Entrada por voz — mantén Alt+V para hablar, suelta para transcribir",
+    recording: "Grabando…",
+    recordingHint: "Suelta Alt+V para detener",
+    transcribing: "Transcribiendo…",
+    transcribeTimeout: "La transcripción caducó. Comprueba el micrófono o el idioma de voz del sistema.",
+    voiceEngine: "Motor de voz",
+    voiceEngineDesc: "Elige cómo se transcribe la entrada de voz",
+    voiceNative: "Windows nativo (integrado)",
+    voiceWhisper: "Whisper (requiere descarga)",
+    voiceNativeDesc: "Usa el reconocimiento de voz integrado de Windows — sin configuración, funciona sin conexión",
+    voiceWhisperDesc: "Descarga el modelo Whisper para transcripción más precisa — requiere ~75 MB",
+    downloadWhisper: "Descargar modelo Whisper",
+    whisperDownloaded: "Modelo Whisper listo",
+    whisperDownloadFailed: "Descarga fallida",
+    whisperNotInstalled:
+      "Whisper aún no está descargado. Instala el modelo multilingüe de ~75 MB para transcripción rápida y sin conexión.",
+    whisperInstalling: "Descargando {0}…",
+    whisperStarting: "Iniciando descarga…",
+    whisperPhaseBinary: "binario de Whisper",
+    whisperPhaseModel: "modelo",
+    whisperInstallHint: "Mantén la ventana abierta — tardará un momento.",
+    whisperReadyHint:
+      "Whisper está listo. Las grabaciones se transcriben localmente y sin conexión.",
     ollamaManager: "Modelos de Ollama",
     loadedModels: "Cargados en memoria",
     noLoadedModels: "No hay modelos cargados. Ejecuta un prompt o descarga uno abajo.",
@@ -701,6 +753,34 @@ export const translations = {
     copiedToClipboard: "In die Zwischenablage kopiert",
     quickActionDesc:
       "Ein (Ctrl+Shift+T/R/K): Antwort automatisch in der vorherigen App einfügen. Aus: nur in die Zwischenablage kopieren.",
+
+    // Voice input
+    voiceInput: "Spracheingabe",
+    voiceInputStatus: "Spracheingabe — Alt+V gedrückt halten zum Sprechen, loslassen zum Transkribieren",
+    recording: "Aufnahme…",
+    recordingHint: "Alt+V loslassen zum Stoppen",
+    transcribing: "Transkribiere…",
+    transcribeTimeout: "Transkription abgelaufen. Prüfen Sie Mikrofon oder Sprachpaket.",
+    voiceEngine: "Spracherkennung",
+    voiceEngineDesc: "Wählen Sie, wie Spracheingabe transkribiert wird",
+    voiceNative: "Windows nativ (integriert)",
+    voiceWhisper: "Whisper (erfordert Herunterladen)",
+    voiceNativeDesc:
+      "Nutzt die integrierte Windows-Spracherkennung (SAPI) — keine Einrichtung, offline nutzbar",
+    voiceWhisperDesc:
+      "Whisper-Modell für genauere Transkription herunterladen — erfordert ~75 MB",
+    downloadWhisper: "Whisper-Modell herunterladen",
+    whisperDownloaded: "Whisper-Modell bereit",
+    whisperDownloadFailed: "Download fehlgeschlagen",
+    whisperNotInstalled:
+      "Whisper ist noch nicht heruntergeladen. Installieren Sie das ~75-MB-mehrsprachige Modell für schnelle Offline-Transkription.",
+    whisperInstalling: "Lade {0} herunter…",
+    whisperStarting: "Download wird gestartet…",
+    whisperPhaseBinary: "Whisper-Binärdatei",
+    whisperPhaseModel: "Modell",
+    whisperInstallHint: "Fenster offen lassen – das dauert einen Moment.",
+    whisperReadyHint:
+      "Whisper ist bereit. Aufnahmen werden lokal und offline transkribiert.",
     ollamaManager: "Ollama-Modelle",
     loadedModels: "Im Speicher geladen",
     noLoadedModels: "Keine Modelle geladen. Führen Sie einen Prompt aus oder laden Sie unten eines herunter.",
@@ -961,6 +1041,34 @@ export const translations = {
     copiedToClipboard: "Copiado para a área de transferência",
     quickActionDesc:
       "Ativo (Ctrl+Shift+T/R/K): insere a resposta na app anterior. Inativo: apenas copia para a área de transferência.",
+
+    // Voice input
+    voiceInput: "Entrada de voz",
+    voiceInputStatus: "Entrada por voz — mantenha Alt+V para falar, solte para transcrever",
+    recording: "A gravar…",
+    recordingHint: "Solte Alt+V para parar",
+    transcribing: "A transcrever…",
+    transcribeTimeout: "A transcrição expirou. Verifique o microfone ou o pacote de idioma de voz.",
+    voiceEngine: "Motor de voz",
+    voiceEngineDesc: "Escolha como a entrada de voz é transcrita",
+    voiceNative: "Windows nativo (integrado)",
+    voiceWhisper: "Whisper (requer download)",
+    voiceNativeDesc:
+      "Usa o reconhecimento de voz integrado do Windows — sem configuração, funciona offline",
+    voiceWhisperDesc:
+      "Descarregue o modelo Whisper para transcrição mais precisa — requer ~75 MB",
+    downloadWhisper: "Descarregar modelo Whisper",
+    whisperDownloaded: "Modelo Whisper pronto",
+    whisperDownloadFailed: "Download falhou",
+    whisperNotInstalled:
+      "O Whisper ainda não foi descarregado. Instale o modelo multilingue de ~75 MB para transcrição rápida e offline.",
+    whisperInstalling: "A descarregar {0}…",
+    whisperStarting: "A iniciar download…",
+    whisperPhaseBinary: "binário do Whisper",
+    whisperPhaseModel: "modelo",
+    whisperInstallHint: "Mantenha a janela aberta — demora um pouco.",
+    whisperReadyHint:
+      "O Whisper está pronto. As gravações são transcritas localmente e offline.",
     ollamaManager: "Modelos Ollama",
     loadedModels: "Carregados em memória",
     noLoadedModels: "Sem modelos carregados. Execute um prompt ou descarregue um abaixo.",
@@ -1222,6 +1330,34 @@ export const translations = {
     copiedToClipboard: "Copié dans le presse-papiers",
     quickActionDesc:
       "Activé (Ctrl+Shift+T/R/K) : insère la réponse dans l'application précédente. Désactivé : copie seulement dans le presse-papiers.",
+
+    // Voice input
+    voiceInput: "Entrée vocale",
+    voiceInputStatus: "Entrée vocale — maintenez Alt+V pour parler, relâchez pour transcrire",
+    recording: "Enregistrement…",
+    recordingHint: "Relâchez Alt+V pour arrêter",
+    transcribing: "Transcription…",
+    transcribeTimeout: "Transcription expirée. Vérifiez le micro ou le pack de langue vocale.",
+    voiceEngine: "Moteur vocal",
+    voiceEngineDesc: "Choisissez comment l'entrée vocale est transcrite",
+    voiceNative: "Windows natif (intégré)",
+    voiceWhisper: "Whisper (téléchargement requis)",
+    voiceNativeDesc:
+      "Utilise la reconnaissance vocale intégrée de Windows — aucune configuration, fonctionne hors ligne",
+    voiceWhisperDesc:
+      "Téléchargez le modèle Whisper pour une transcription plus précise — nécessite ~75 Mo",
+    downloadWhisper: "Télécharger le modèle Whisper",
+    whisperDownloaded: "Modèle Whisper prêt",
+    whisperDownloadFailed: "Échec du téléchargement",
+    whisperNotInstalled:
+      "Whisper n'est pas encore téléchargé. Installez le modèle multilingue de ~75 Mo pour une transcription rapide et hors ligne.",
+    whisperInstalling: "Téléchargement de {0}…",
+    whisperStarting: "Démarrage du téléchargement…",
+    whisperPhaseBinary: "binaire Whisper",
+    whisperPhaseModel: "modèle",
+    whisperInstallHint: "Gardez la fenêtre ouverte — cela prend un instant.",
+    whisperReadyHint:
+      "Whisper est prêt. Les enregistrements sont transcrits localement et hors ligne.",
     ollamaManager: "Modèles Ollama",
     loadedModels: "Chargés en mémoire",
     noLoadedModels: "Aucun modèle chargé. Exécutez un prompt ou téléchargez-en un ci-dessous.",

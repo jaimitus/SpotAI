@@ -10,6 +10,12 @@ import type {
   QuickActionPayload,
   ShortcutStatus,
   TokenEvent,
+  VoiceCaptureResult,
+  VoiceStatusEvent,
+  VoiceStoppedEvent,
+  VoiceTranscribedEvent,
+  WhisperProgressEvent,
+  WhisperStatus,
 } from "../types";
 import { BUILTIN_CLOUD_MODELS, DEFAULT_PROMPT_TEMPLATES } from "./prompts";
 
@@ -228,6 +234,7 @@ export function loadSettings(): AppSettings {
     promptTemplates: DEFAULT_PROMPT_TEMPLATES,
     autostart: false,
     autoInsertQuickActions: true,
+    voiceEngine: "native",
   };
   try {
     const value = localStorage.getItem(SETTINGS_KEY);
@@ -316,4 +323,69 @@ export async function confirmDialog(message: string): Promise<boolean> {
   if (!isTauri()) return window.confirm(message);
   const { confirm } = await import("@tauri-apps/plugin-dialog");
   return confirm(message, { kind: "warning" });
+}
+
+// ── Voice input ───────────────────────────────────────────────────────────
+
+export async function startVoiceCapture(): Promise<void> {
+  await invoke("start_voice_capture");
+}
+
+export async function stopVoiceCapture(): Promise<VoiceCaptureResult> {
+  return invoke<VoiceCaptureResult>("stop_voice_capture");
+}
+
+export async function setVoiceEngine(engine: string): Promise<void> {
+  await invoke("set_voice_engine", { engine });
+}
+
+export async function listenVoiceStatus(
+  handler: (event: VoiceStatusEvent) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<VoiceStatusEvent>("voice-status", (e) => handler(e.payload));
+}
+
+export async function listenVoiceStopped(
+  handler: (event: VoiceStoppedEvent) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<VoiceStoppedEvent>("voice-stopped", (e) => handler(e.payload));
+}
+
+export async function listenVoiceTranscribed(
+  handler: (event: VoiceTranscribedEvent) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<VoiceTranscribedEvent>("voice-transcribed", (e) =>
+    handler(e.payload),
+  );
+}
+
+// ── Whisper.cpp ──────────────────────────────────────────────────────────
+
+export async function getWhisperStatus(): Promise<WhisperStatus> {
+  if (!isTauri()) {
+    return { installed: false, installing: false, modelSize: 0 };
+  }
+  return invoke<WhisperStatus>("get_whisper_status");
+}
+
+export async function installWhisper(): Promise<void> {
+  await invoke("install_whisper");
+}
+
+/** Transcribes a recorded WAV with whisper-cli; the result arrives as a
+ *  `voice-transcribed` event. */
+export async function transcribeVoiceWav(path: string): Promise<void> {
+  await invoke("transcribe_voice_wav", { path });
+}
+
+export async function listenWhisperProgress(
+  handler: (event: WhisperProgressEvent) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<WhisperProgressEvent>("whisper-progress", (e) =>
+    handler(e.payload),
+  );
 }

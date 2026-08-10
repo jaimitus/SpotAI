@@ -6,6 +6,7 @@ import {
   Download,
   ExternalLink,
   EyeOff,
+  Mic,
   ClipboardPaste,
   Copy,
   Loader2,
@@ -62,8 +63,14 @@ import {
   hideWindow,
   isTauri,
   listenQuickAction,
+  listenVoiceStatus,
+  listenVoiceStopped,
+  listenVoiceTranscribed,
   listenWindowShown,
   loadSettings,
+  startVoiceCapture,
+  stopVoiceCapture,
+  transcribeVoiceWav,
   openExternalUrl,
   registerShortcut,
   resolveHost,
@@ -84,6 +91,7 @@ import type {
   PromptTemplate,
   QuickActionPayload,
   SystemActionId,
+  VoiceTranscribedEvent,
 } from "../types";
 import { cn } from "../utils/cn";
 import { ActionChips } from "./ActionChips";
@@ -219,10 +227,21 @@ export function SpotlightWindow() {
   const [contextRefreshFailed, setContextRefreshFailed] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteDraft, setPasteDraft] = useState("");
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+
+  const currentLang = settings.language || "en";
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyIndexRef = useRef<number | null>(null);
   const historyDraftRef = useRef("");
+  // Voice session tracking: bumped on every capture start / overlay clear so a
+  // late `voice-transcribed` event from an older session can never overwrite
+  // the prompt of a newer one.
+  const voiceSessionRef = useRef(0);
+  const voiceWaitingSessionRef = useRef(-1);
+  const transcribeTimerRef = useRef<number | null>(null);
   // Set when a request was started from a dedicated quick-action shortcut
   // (Ctrl+Shift+T/R/K). When the reply finishes, it is inserted into the
   // previously-focused app automatically instead of waiting for Ctrl+Enter.
@@ -256,6 +275,32 @@ export function SpotlightWindow() {
     restore("");
     setPrompt(value);
   }, [restore]);
+
+  const clearTranscribeTimer = () => {
+    if (transcribeTimerRef.current !== null) {
+      window.clearTimeout(transcribeTimerRef.current);
+      transcribeTimerRef.current = null;
+    }
+  };
+
+  // Enter the "Transcribing…" state for the current voice session.  A timeout
+  // guard prevents the state from hanging forever when the OS recognizer is
+  // unavailable (e.g. no language pack) or a rapid re-record was dropped.
+  const beginWaitingForTranscription = useCallback(() => {
+    voiceWaitingSessionRef.current = voiceSessionRef.current;
+    setTranscribing(true);
+    clearTranscribeTimer();
+    transcribeTimerRef.current = window.setTimeout(() => {
+      transcribeTimerRef.current = null;
+      setTranscribing(false);
+      setVoiceError(t(currentLang, "transcribeTimeout") || "Transcription timed out");
+    }, 9000);
+  }, [currentLang]);
+
+  const cancelWaitingForTranscription = useCallback(() => {
+    clearTranscribeTimer();
+    setTranscribing(false);
+  }, []);
 
   const recordPrompt = useCallback((value: string) => {
     const normalized = value.trim();
@@ -342,7 +387,10 @@ export function SpotlightWindow() {
     setActiveAction(null);
     // Cancel any pending quick-action auto-insert (Esc, new chat, incognito…).
     quickActionRef.current = null;
-  }, [status, stop, reset, setPromptValue]);
+    // Drop any in-flight voice transcription so it cannot land in a newer session.
+    voiceSessionRef.current += 1;
+    cancelWaitingForTranscription();
+  }, [status, stop, reset, setPromptValue, cancelWaitingForTranscription]);
 
   const newChat = useCallback(() => {
     clearOverlayState();
@@ -357,10 +405,11 @@ export function SpotlightWindow() {
     reset();
     setPromptValue("");
     setActiveAction(null);
+    // Ignore any in-flight transcription when the overlay is dismissed.
+    voiceSessionRef.current += 1;
+    cancelWaitingForTranscription();
     void hideWindow();
-  }, [status, stop, reset, setPromptValue]);
-
-  const currentLang = settings.language || "en";
+  }, [status, stop, reset, setPromptValue, cancelWaitingForTranscription]);
 
   const selectConversation = useCallback(
     (id: string) => {
@@ -942,6 +991,115 @@ export function SpotlightWindow() {
     };
   }, [handleQuickAction]);
 
+  // Voice input: listen for status changes (recording on/off), completed
+  // captures (WAV file), and live transcriptions from the native engine.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlistenStatus: (() => void) | undefined;
+    let unlistenStopped: (() => void) | undefined;
+    let unlistenTranscribed: (() => void) | undefined;
+
+    void listenVoiceStatus((event) => {
+      if (event.recording) {
+        // A new capture session started (Alt+V); bump the session so stale
+        // transcriptions from a previous session are ignored.
+        voiceSessionRef.current += 1;
+        cancelWaitingForTranscription();
+        setRecording(true);
+      } else {
+        setRecording(false);
+      }
+      if (event.error) setVoiceError(event.error);
+      else setVoiceError(null);
+    }).then((dispose) => {
+      unlistenStatus = dispose;
+    });
+
+    void listenVoiceStopped((event) => {
+      setRecording(false);
+      if (event.engine === "whisper") {
+        // Whisper engine: transcribe the recorded WAV file. The result
+        // arrives via the voice-transcribed event.
+        beginWaitingForTranscription();
+        void transcribeVoiceWav(event.path).catch(() => undefined);
+      } else {
+        // Native engine transcribes the live mic; the text arrives via the
+        // voice-transcribed event once the speaker pauses.
+        beginWaitingForTranscription();
+      }
+      setVoiceError(null);
+    }).then((dispose) => {
+      unlistenStopped = dispose;
+    });
+
+    void listenVoiceTranscribed((event: VoiceTranscribedEvent) => {
+      setRecording(false);
+      // Ignore transcriptions that no longer belong to the current session
+      // (e.g. the user started a new capture or dismissed the overlay).
+      if (voiceWaitingSessionRef.current !== voiceSessionRef.current) {
+        cancelWaitingForTranscription();
+        return;
+      }
+      cancelWaitingForTranscription();
+      if (event.error || !event.text) {
+        setVoiceError(event.error || "No speech detected");
+        return;
+      }
+      setVoiceError(null);
+      // Inject the recognised text straight into the prompt.
+      setPromptValue(event.text);
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        const el = inputRef.current;
+        if (el) el.selectionStart = el.selectionEnd = el.value.length;
+      });
+    }).then((dispose) => {
+      unlistenTranscribed = dispose;
+    });
+
+    return () => {
+      unlistenStatus?.();
+      unlistenStopped?.();
+      unlistenTranscribed?.();
+      clearTranscribeTimer();
+    };
+  }, [
+    setPromptValue,
+    beginWaitingForTranscription,
+    cancelWaitingForTranscription,
+  ]);
+
+  const toggleVoiceCapture = useCallback(() => {
+    if (recording) {
+      setVoiceError(null);
+      void stopVoiceCapture()
+        .then((result) => {
+          setRecording(false);
+          if (result.engine === "whisper") {
+            beginWaitingForTranscription();
+            void transcribeVoiceWav(result.path).catch(() => undefined);
+          } else {
+            // Wait for the voice-transcribed event from the native engine.
+            beginWaitingForTranscription();
+          }
+        })
+        .catch((err) => {
+          setRecording(false);
+          cancelWaitingForTranscription();
+          setVoiceError(String(err));
+        });
+    } else {
+      setVoiceError(null);
+      voiceSessionRef.current += 1;
+      cancelWaitingForTranscription();
+      setRecording(true);
+      void startVoiceCapture().catch((err) => {
+        setRecording(false);
+        setVoiceError(String(err));
+      });
+    }
+  }, [recording, setPromptValue, beginWaitingForTranscription, cancelWaitingForTranscription]);
+
   const canSubmit = useMemo(() => {
     if (isStreaming) return false;
     if (!prompt.trim() && !contextText.trim() && !contextImage) return false;
@@ -1252,6 +1410,24 @@ export function SpotlightWindow() {
               onRefresh={() => void reloadModels(settings)}
               onChange={handleProviderChange}
             />
+            {/* Voice input only exists in the desktop runtime: without Tauri the
+                capture backend is unavailable, so hide the mic button. */}
+            {isTauri() && (
+              <button
+                type="button"
+                onClick={toggleVoiceCapture}
+                title={recording ? "Recording… (Alt+V)" : t(currentLang, "voiceInput") || "Voice input"}
+                aria-label={recording ? "Stop recording" : "Voice input"}
+                className={cn(
+                  "rounded-lg p-1.5 transition",
+                  recording
+                    ? "bg-rose-400/15 text-[var(--pe-rose-strong)] animate-pulse"
+                    : "text-[var(--pe-text-muted)] hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]",
+                )}
+              >
+                <Mic className="h-4 w-4" />
+              </button>
+            )}
             <button
               type="button"
               onClick={toggleIncognito}
@@ -1462,6 +1638,53 @@ export function SpotlightWindow() {
           </div>
         )}
 
+        {/* Transcribing indicator (native engine) */}
+        {transcribing && !recording && (
+          <div className="flex items-center gap-2 border-b border-[var(--pe-border-faint)] bg-cyan-400/[0.05] px-3 py-1.5">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--pe-accent-strong)]" />
+            <span className="text-[11px] font-medium text-[var(--pe-accent-strong)]">
+              {t(currentLang, "transcribing") || "Transcribing…"}
+            </span>
+          </div>
+        )}
+
+        {/* Recording indicator */}
+        {recording && (
+          <div className="flex items-center gap-2 border-b border-[var(--pe-border-faint)] bg-rose-400/[0.05] px-3 py-1.5">
+            <Mic className="h-4 w-4 animate-pulse text-[var(--pe-rose-strong)]" />
+            <span className="text-[11px] font-medium text-[var(--pe-rose-strong)]">
+              {t(currentLang, "recording") || "Recording…"}
+            </span>
+            <span className="flex items-center gap-1 text-[10px] text-[var(--pe-text-muted)]">
+              <span className="inline-block h-2 w-2 rounded-full bg-[var(--pe-rose-strong)] animate-pulse" />
+              {t(currentLang, "recordingHint") || "Release Alt+V to stop"}
+            </span>
+            <button
+              type="button"
+              onClick={toggleVoiceCapture}
+              className="ml-auto shrink-0 rounded-md px-1.5 py-0.5 text-[10px] text-[var(--pe-text-muted)] transition hover:bg-rose-400/15 hover:text-[var(--pe-rose-strong)]"
+            >
+              {t(currentLang, "stop") || "Stop"}
+            </button>
+          </div>
+        )}
+
+        {/* Voice error toast */}
+        {voiceError && !recording && (
+          <div className="flex items-center gap-2 border-b border-[var(--pe-border-faint)] bg-rose-400/[0.05] px-3 py-1.5">
+            <span className="text-[11px] text-[var(--pe-rose-strong)]">
+              {voiceError}
+            </span>
+            <button
+              type="button"
+              onClick={() => setVoiceError(null)}
+              className="ml-auto shrink-0 rounded-md px-1.5 py-0.5 text-[10px] text-[var(--pe-text-muted)] transition hover:bg-rose-400/15 hover:text-[var(--pe-rose-strong)]"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+
         {/* Pasted image context (vision models) */}
         {contextImage && (
           <div className="flex items-center gap-2 border-b border-[var(--pe-border-faint)] bg-violet-400/[0.05] px-3 py-1.5">
@@ -1520,23 +1743,27 @@ export function SpotlightWindow() {
               spellCheck={false}
               disabled={isStreaming}
             />
-            <button
-              type="button"
-              onClick={() => void startScreenCapture()}
-              disabled={isStreaming || captureLoading}
-              title={t(currentLang, "screenCapture")}
-              className={cn(
-                "absolute bottom-2.5 right-12 flex h-8 w-8 items-center justify-center rounded-lg text-[var(--pe-text-muted)] transition-colors",
-                "hover:bg-[var(--pe-hover)] hover:text-[var(--pe-violet-strong)]",
-                (isStreaming || captureLoading) && "opacity-40",
-              )}
-            >
-              {captureLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Camera className="h-4 w-4" />
-              )}
-            </button>
+            {/* Screen capture needs the desktop runtime (xcap captures the
+                monitors); without Tauri captureScreens() returns [], so hide it. */}
+            {isTauri() && (
+              <button
+                type="button"
+                onClick={() => void startScreenCapture()}
+                disabled={isStreaming || captureLoading}
+                title={t(currentLang, "screenCapture")}
+                className={cn(
+                  "absolute bottom-2.5 right-12 flex h-8 w-8 items-center justify-center rounded-lg text-[var(--pe-text-muted)] transition-colors",
+                  "hover:bg-[var(--pe-hover)] hover:text-[var(--pe-violet-strong)]",
+                  (isStreaming || captureLoading) && "opacity-40",
+                )}
+              >
+                {captureLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Camera className="h-4 w-4" />
+                )}
+              </button>
+            )}
             <button
               type="submit"
               disabled={!canSubmit}

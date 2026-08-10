@@ -23,3 +23,4 @@ src-tauri/target/
 .idea/
 .DS_Store
 *.log
+RELEASE_NOTES.md

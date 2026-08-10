@@ -108,6 +108,8 @@ export interface AppSettings {
   /** When enabled, quick-action results are inserted into the previous app
    *  automatically; when disabled they are only copied to the clipboard. */
   autoInsertQuickActions?: boolean;
+  /** Speech-to-text engine preference. */
+  voiceEngine?: string;
 }
 
 export interface HealthStatus {
@@ -140,6 +142,42 @@ export interface OllamaPsModel {
 export interface ShortcutStatus {
   registered: boolean;
   error?: string | null;
+}
+
+export type VoiceEngine = "native" | "whisper";
+
+export interface VoiceCaptureResult {
+  path: string;
+  durationSecs: number;
+  engine: VoiceEngine;
+}
+
+export interface VoiceStatusEvent {
+  recording: boolean;
+  error?: string | null;
+}
+
+export interface VoiceStoppedEvent {
+  path: string;
+  durationSecs: number;
+  engine: VoiceEngine;
+}
+
+export interface VoiceTranscribedEvent {
+  text?: string | null;
+  error?: string | null;
+}
+
+export interface WhisperStatus {
+  installed: boolean;
+  installing: boolean;
+  modelSize: number;
+}
+
+export interface WhisperProgressEvent {
+  phase: "binary" | "model";
+  received: number;
+  total: number;
 }
 
 export type ActionChipId =

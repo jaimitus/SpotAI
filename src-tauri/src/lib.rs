@@ -4,15 +4,17 @@ mod ai;
 mod commands;
 mod native_input;
 mod secure_store;
+mod voice;
+mod whisper;
 
 use ai::{ActiveStream, AiHttpClient};
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
-use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -39,6 +41,46 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
                     // Capture after release so the physical Alt key cannot interfere with Ctrl+C.
+                    let voice_shortcut = Shortcut::new(Some(Modifiers::ALT), Code::KeyV);
+                    if *shortcut == voice_shortcut {
+                        if event.state() == ShortcutState::Pressed {
+                            // Start voice capture when Alt+V is pressed.
+                            let voice = app.state::<voice::VoiceState>();
+                            let _ = voice::start_capture(&voice, app.clone()).map_err(|e| {
+                                let _ = app.emit(
+                                    "voice-status",
+                                    serde_json::json!({ "recording": false, "error": e }),
+                                );
+                            });
+                            let _ = app.emit(
+                                "voice-status",
+                                serde_json::json!({ "recording": true, "error": null }),
+                            );
+                        } else if event.state() == ShortcutState::Released {
+                            // Stop voice capture on release.
+                            let voice = app.state::<voice::VoiceState>();
+                            match voice::stop_capture(&voice) {
+                                Ok((path, duration, engine)) => {
+                                    let _ = app.emit(
+                                        "voice-stopped",
+                                        serde_json::json!({
+                                            "path": path.to_string_lossy(),
+                                            "durationSecs": duration,
+                                            "engine": engine,
+                                        }),
+                                    );
+                                }
+                                Err(e) => {
+                                    let _ = app.emit(
+                                        "voice-status",
+                                        serde_json::json!({ "recording": false, "error": e }),
+                                    );
+                                }
+                            }
+                        }
+                        return;
+                    }
+
                     if event.state() == ShortcutState::Released {
                         if let Some(action) = commands::quick_action_for(shortcut) {
                             commands::dispatch_quick_action(app, action);
@@ -58,6 +100,8 @@ pub fn run() {
         )
         .manage(ActiveStream::default())
         .manage(commands::ShortcutRegistration::default())
+        .manage(voice::VoiceState::new())
+        .manage(whisper::WhisperState::new())
         .manage(AiHttpClient::new().expect("failed to create the shared HTTP client"))
         .invoke_handler(tauri::generate_handler![
             commands::get_clipboard_text,
@@ -88,6 +132,12 @@ pub fn run() {
             commands::ollama_delete_model,
             commands::fetch_ollama_ps,
             commands::capture_screens,
+            commands::start_voice_capture,
+            commands::stop_voice_capture,
+            commands::set_voice_engine,
+            commands::get_whisper_status,
+            commands::install_whisper,
+            commands::transcribe_voice_wav,
         ])
         .setup(|app| {
             let shortcut_status = app.state::<commands::ShortcutRegistration>();
@@ -98,6 +148,21 @@ pub fn run() {
                 tracing::error!(%error);
             }
             commands::register_quick_actions(app.handle());
+
+            // Register the voice push-to-talk shortcut (Alt+V).
+            let voice_shortcut = Shortcut::new(Some(Modifiers::ALT), Code::KeyV);
+            if let Err(error) = app.global_shortcut().register(voice_shortcut) {
+                tracing::error!(%error, "failed to register push-to-talk shortcut (Alt+V)");
+            }
+            // Voice captures are written to the app temp dir.
+            if let Ok(temp_dir) = app.path().temp_dir() {
+                app.state::<voice::VoiceState>().set_temp_dir(temp_dir);
+            }
+            // Whisper artifacts live in the app data dir.
+            if let Ok(data_dir) = app.path().app_data_dir() {
+                app.state::<whisper::WhisperState>()
+                    .set_dir(data_dir.join("whisper"));
+            }
 
             let show_item =
                 MenuItem::with_id(app, "show", "Show SpotAI", true, None::<&str>)?;
