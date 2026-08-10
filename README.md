@@ -48,14 +48,23 @@ Speak instead of typing: hold **`Alt + V`** (or click the microphone button in t
 Two transcription engines are available in **Settings → General → Speech-to-text engine**:
 
 - 🪟 **Native (Windows SAPI)** — zero setup. Uses the Windows speech recognizer in live dictation mode with short silence timeouts for instant results.
-- 🧠 **Whisper (whisper.cpp)** — more accurate and multilingual (en/es/de/pt/fr). The first time you pick it, a **~75 MB download** (binary + multilingual model) is offered from Settings; afterwards everything runs **locally and offline**. Recordings are also saved as WAV so the Whisper engine can transcribe them.
+- 🧠 **Whisper (whisper.cpp)** — more accurate and multilingual (en/es/de/pt/fr). The first time you pick it, a download (binary + model) is offered from Settings; afterwards everything runs **locally and offline**. You can choose the **model size** (Tiny / Base / Small) and the **recognition language** — see *Tuning Whisper* below. Recordings are also saved as WAV so the Whisper engine can transcribe them.
 
 ### The Whisper install panel (3 phases)
 
 | 1 · Before download | 2 · During download | 3 · Ready |
 | :---: | :---: | :---: |
 | ![Whisper panel before download](visual-test/01-whisper-before.webp) | ![Whisper panel during download](visual-test/02-whisper-during.webp) | ![Whisper panel ready](visual-test/03-whisper-after.webp) |
-| Shows the **Download Whisper model** button until the ~75 MB model is installed. | A live progress bar tracks the binary and model download phases. | A green check confirms **Whisper model ready** with the installed model size. |
+| Shows the **Download Whisper model** button for the selected size (Tiny/Base/Small). | A live progress bar tracks the binary and model download phases. | A green check confirms **Whisper model ready** with the installed model size. |
+
+### Tuning Whisper: model size & recognition language
+
+In **Settings → Voice** you can adjust how Whisper transcribes:
+
+- 🎚️ **Recognition language** — whisper's automatic detection on short clips often assumes **English** and produces nonsense on other languages. Pin the spoken language (**Auto / English / Español / Deutsch / Português / Français**) for reliable dictation; when nothing is pinned, the app defaults to your **interface language** automatically.
+- 📦 **Model size** — **Tiny (~75 MB)** is the fast default, while **Base (~145 MB)** and **Small (~466 MB)** are noticeably more accurate on non-English speech (at the cost of slower transcription). Switching only downloads the model you pick — the binary is shared, and sizes you've already downloaded switch instantly.
+
+> 💡 **Tip**: for dictation in Spanish (or any non-English language), pick **Base** or **Small** and pin **Español** — the Tiny model is fast but often misrecognises words.
 
 > 💡 **Tip**: Whisper runs fully offline after the one-time download. The native engine needs the Windows speech language pack for your language.
 
