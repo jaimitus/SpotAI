@@ -46,16 +46,34 @@ pub fn run() {
                         if event.state() == ShortcutState::Pressed {
                             // Start voice capture when Alt+V is pressed.
                             let voice = app.state::<voice::VoiceState>();
-                            let _ = voice::start_capture(&voice, app.clone()).map_err(|e| {
-                                let _ = app.emit(
-                                    "voice-status",
-                                    serde_json::json!({ "recording": false, "error": e }),
-                                );
-                            });
-                            let _ = app.emit(
-                                "voice-status",
-                                serde_json::json!({ "recording": true, "error": null }),
-                            );
+                            match voice::start_capture(&voice, app.clone()) {
+                                Ok(()) => {
+                                    let _ = app.emit(
+                                        "voice-status",
+                                        serde_json::json!({ "recording": true, "error": null }),
+                                    );
+                                }
+                                Err(e) => {
+                                    // The backend may already be recording (e.g.
+                                    // started from the UI button): reflect that
+                                    // instead of an error toast, so the UI never
+                                    // desyncs from the actual capture state.
+                                    let recording =
+                                        voice::voice_status(&voice).recording;
+                                    let payload = if recording {
+                                        serde_json::json!({
+                                            "recording": true,
+                                            "error": null,
+                                        })
+                                    } else {
+                                        serde_json::json!({
+                                            "recording": false,
+                                            "error": e,
+                                        })
+                                    };
+                                    let _ = app.emit("voice-status", payload);
+                                }
+                            }
                         } else if event.state() == ShortcutState::Released {
                             // Stop voice capture on release.
                             let voice = app.state::<voice::VoiceState>();
@@ -134,7 +152,10 @@ pub fn run() {
             commands::capture_screens,
             commands::start_voice_capture,
             commands::stop_voice_capture,
+            commands::voice_state,
             commands::set_voice_engine,
+            commands::list_microphones,
+            commands::set_selected_microphone,
             commands::get_whisper_status,
             commands::install_whisper,
             commands::transcribe_voice_wav,
@@ -154,9 +175,11 @@ pub fn run() {
             if let Err(error) = app.global_shortcut().register(voice_shortcut) {
                 tracing::error!(%error, "failed to register push-to-talk shortcut (Alt+V)");
             }
-            // Voice captures are written to the app temp dir.
+            // Voice captures are written to the app temp dir. Sweep leftovers
+            // from crashed/interrupted captures so they cannot fill the disk.
             if let Ok(temp_dir) = app.path().temp_dir() {
-                app.state::<voice::VoiceState>().set_temp_dir(temp_dir);
+                app.state::<voice::VoiceState>().set_temp_dir(temp_dir.clone());
+                voice::cleanup_stale_captures(&temp_dir);
             }
             // Whisper artifacts live in the app data dir.
             if let Ok(data_dir) = app.path().app_data_dir() {

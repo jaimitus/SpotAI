@@ -68,6 +68,7 @@ import {
   listenVoiceTranscribed,
   listenWindowShown,
   loadSettings,
+  getVoiceState,
   startVoiceCapture,
   stopVoiceCapture,
   transcribeVoiceWav,
@@ -106,6 +107,10 @@ const LEGACY_PROMPT_HISTORY_KEY = "spotai.prompt-history.v1";
 const MAX_PROMPT_HISTORY = 20;
 const MODEL_MEMORY_KEY = "spotai.model-memory.v1";
 const WINDOW_SIZE_KEY = "spotai.window-size.v1";
+// Persisted when the Windows native recognizer fails with the "speech privacy
+// policy was not accepted" error (the app lacks microphone permission), so
+// Settings can show an actionable warning until a transcription succeeds.
+const MIC_PERMISSION_KEY = "spotai.mic-permission.v1";
 
 /** Formats a capture timestamp as a localized clock time (e.g. "14:32:05"). */
 function formatCaptureTime(timestamp: number, lang: Language): string {
@@ -116,6 +121,19 @@ function formatCaptureTime(timestamp: number, lang: Language): string {
     minute: "2-digit",
     second: "2-digit",
   });
+}
+
+/** Formats a duration in seconds as mm:ss (e.g. 73 → "01:13"). */
+function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+/** Formats an elapsed duration as mm:ss (e.g. "00:07"). */
+function formatElapsed(start: number, now: number): string {
+  return formatDuration((now - start) / 1000);
 }
 
 function loadModelMemory(): Record<string, string> {
@@ -228,6 +246,11 @@ export function SpotlightWindow() {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteDraft, setPasteDraft] = useState("");
   const [recording, setRecording] = useState(false);
+  const [recordingSince, setRecordingSince] = useState<number | null>(null);
+  const [elapsedNow, setElapsedNow] = useState(() => Date.now());
+  // Total length (seconds) of the recording being transcribed, shown in the
+  // "Transcribing…" bar. Set from the stop result / voice-stopped event.
+  const [recordingDuration, setRecordingDuration] = useState<number | null>(null);
   const [transcribing, setTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
 
@@ -293,6 +316,7 @@ export function SpotlightWindow() {
     transcribeTimerRef.current = window.setTimeout(() => {
       transcribeTimerRef.current = null;
       setTranscribing(false);
+      setRecordingDuration(null);
       setVoiceError(t(currentLang, "transcribeTimeout") || "Transcription timed out");
     }, 9000);
   }, [currentLang]);
@@ -300,6 +324,46 @@ export function SpotlightWindow() {
   const cancelWaitingForTranscription = useCallback(() => {
     clearTranscribeTimer();
     setTranscribing(false);
+    // The transcription is over: drop the processed duration marker too. It
+    // is set right before beginWaitingForTranscription, never after, so this
+    // cannot erase a duration the bar still needs to show.
+    setRecordingDuration(null);
+  }, []);
+
+  // Track when the current capture started so the recording bar can show a
+  // session marker (start time + live elapsed) that distinguishes captures.
+  // Derived from the `recording` state so every entry/exit path stays in sync
+  // (button, Alt+V events, backend reconciliation).
+  useEffect(() => {
+    if (recording) {
+      setRecordingSince(Date.now());
+      // A fresh capture invalidates the previous recording's duration marker.
+      setRecordingDuration(null);
+    } else {
+      setRecordingSince(null);
+    }
+  }, [recording]);
+
+  // Tick once per second while recording for the live elapsed counter.
+  useEffect(() => {
+    if (!recording) return;
+    setElapsedNow(Date.now());
+    const timer = window.setInterval(() => setElapsedNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [recording]);
+
+  // Ask the backend what it is actually doing and reconcile the recording UI.
+  // A start can race with the Alt+V shortcut (or a previous session left the
+  // backend capturing), so the button must never stay stuck on a stale
+  // "already in progress" toast when the backend is genuinely recording.
+  const syncVoiceState = useCallback(async () => {
+    try {
+      const state = await getVoiceState();
+      setRecording(state.recording);
+      if (state.recording) setVoiceError(null);
+    } catch {
+      // Command unavailable (non-Tauri); keep the current UI state.
+    }
   }, []);
 
   const recordPrompt = useCallback((value: string) => {
@@ -784,8 +848,14 @@ export function SpotlightWindow() {
       });
     };
     focus();
+    // Reconcile with the backend on show: a capture may still be running from
+    // a previous session or the Alt+V shortcut.
+    void syncVoiceState();
     let unlisten: (() => void) | undefined;
-    void listenWindowShown(focus).then((dispose) => {
+    void listenWindowShown(() => {
+      focus();
+      void syncVoiceState();
+    }).then((dispose) => {
       unlisten = dispose;
     });
 
@@ -815,7 +885,7 @@ export function SpotlightWindow() {
       window.removeEventListener("keydown", onKey);
       unlisten?.();
     };
-  }, [settingsOpen, isStreaming, canAutoInsert, stop, dismissOverlay, autoInsertResponse]);
+  }, [settingsOpen, isStreaming, canAutoInsert, stop, dismissOverlay, autoInsertResponse, syncVoiceState]);
 
   const handleProviderChange = (p: string, m: string) => {
     setProvider(p);
@@ -1017,6 +1087,7 @@ export function SpotlightWindow() {
 
     void listenVoiceStopped((event) => {
       setRecording(false);
+      setRecordingDuration(event.durationSecs);
       if (event.engine === "whisper") {
         // Whisper engine: transcribe the recorded WAV file. The result
         // arrives via the voice-transcribed event.
@@ -1033,16 +1104,61 @@ export function SpotlightWindow() {
     });
 
     void listenVoiceTranscribed((event: VoiceTranscribedEvent) => {
-      setRecording(false);
+      // The native recognizer can fail because Windows has not granted the app
+      // microphone access. Remember that and surface an actionable warning in
+      // Settings (persisted until a transcription finally succeeds).
+      if (event.error && /privacy policy was not accepted/i.test(event.error)) {
+        // Only notify once per transition so a burst of identical recognizer
+        // failures (common when permission is missing) does not spam Settings.
+        const wasAlreadyDenied =
+          (() => {
+            try {
+              return localStorage.getItem(MIC_PERMISSION_KEY) === "1";
+            } catch {
+              return true;
+            }
+          })();
+        if (!wasAlreadyDenied) {
+          window.dispatchEvent(new CustomEvent("spotai:mic-permission-denied"));
+        }
+        try {
+          localStorage.setItem(MIC_PERMISSION_KEY, "1");
+        } catch {
+          // Best-effort.
+        }
+      } else if (event.text) {
+        // A successful transcription proves the recognizer works. Notify live
+        // so an open Settings can hide the warning without reopening.
+        try {
+          localStorage.removeItem(MIC_PERMISSION_KEY);
+        } catch {
+          // Best-effort.
+        }
+        window.dispatchEvent(new CustomEvent("spotai:mic-permission-cleared"));
+      }
       // Ignore transcriptions that no longer belong to the current session
-      // (e.g. the user started a new capture or dismissed the overlay).
+      // (e.g. the user started a new capture or dismissed the overlay). A
+      // stale event — like the OS recognizer erroring out while the user is
+      // STILL recording — must not reset the recording state: the backend
+      // keeps capturing and the UI must keep showing the recording bar.
       if (voiceWaitingSessionRef.current !== voiceSessionRef.current) {
         cancelWaitingForTranscription();
         return;
       }
+      setRecording(false);
       cancelWaitingForTranscription();
       if (event.error || !event.text) {
-        setVoiceError(event.error || "No speech detected");
+        // Replace the cryptic OS error with a clear, actionable message when
+        // it is caused by the missing microphone permission.
+        const isPrivacy =
+          typeof event.error === "string" &&
+          /privacy policy was not accepted/i.test(event.error);
+        setVoiceError(
+          isPrivacy
+            ? t(currentLang, "micPermissionError") ||
+                "Microphone access denied by Windows. Allow it in Settings → Privacy → Microphone and restart SpotAI."
+            : event.error || "No speech detected",
+        );
         return;
       }
       setVoiceError(null);
@@ -1067,6 +1183,7 @@ export function SpotlightWindow() {
     setPromptValue,
     beginWaitingForTranscription,
     cancelWaitingForTranscription,
+    currentLang,
   ]);
 
   const toggleVoiceCapture = useCallback(() => {
@@ -1075,6 +1192,7 @@ export function SpotlightWindow() {
       void stopVoiceCapture()
         .then((result) => {
           setRecording(false);
+          setRecordingDuration(result.durationSecs);
           if (result.engine === "whisper") {
             beginWaitingForTranscription();
             void transcribeVoiceWav(result.path).catch(() => undefined);
@@ -1084,9 +1202,24 @@ export function SpotlightWindow() {
           }
         })
         .catch((err) => {
+          // The backend may have already stopped (e.g. Alt+V was released or
+          // a previous stop won the race). Reconcile with the real state
+          // instead of showing a bogus error toast.
           setRecording(false);
-          cancelWaitingForTranscription();
-          setVoiceError(String(err));
+          void getVoiceState()
+            .then((state) => {
+              // The error toast is gated on `!recording`, so when the backend
+              // is still capturing keep the indicator on (so the user can
+              // retry the stop) and clear any toast. When it is not, clear
+              // the toast too: the stop intent already succeeded.
+              setRecording(state.recording);
+              setVoiceError(null);
+              cancelWaitingForTranscription();
+            })
+            .catch(() => {
+              cancelWaitingForTranscription();
+              setVoiceError(String(err));
+            });
         });
     } else {
       setVoiceError(null);
@@ -1094,11 +1227,26 @@ export function SpotlightWindow() {
       cancelWaitingForTranscription();
       setRecording(true);
       void startVoiceCapture().catch((err) => {
-        setRecording(false);
-        setVoiceError(String(err));
+        // The backend may already be recording (started by Alt+V or a previous
+        // session). If so, sync to that state instead of showing a confusing
+        // "already in progress" toast that would leave the UI desynced.
+        void getVoiceState()
+          .then((state) => {
+            if (state.recording) {
+              setRecording(true);
+              setVoiceError(null);
+            } else {
+              setRecording(false);
+              setVoiceError(String(err));
+            }
+          })
+          .catch(() => {
+            setRecording(false);
+            setVoiceError(String(err));
+          });
       });
     }
-  }, [recording, setPromptValue, beginWaitingForTranscription, cancelWaitingForTranscription]);
+  }, [recording, beginWaitingForTranscription, cancelWaitingForTranscription]);
 
   const canSubmit = useMemo(() => {
     if (isStreaming) return false;
@@ -1638,13 +1786,18 @@ export function SpotlightWindow() {
           </div>
         )}
 
-        {/* Transcribing indicator (native engine) */}
+        {/* Transcribing indicator */}
         {transcribing && !recording && (
           <div className="flex items-center gap-2 border-b border-[var(--pe-border-faint)] bg-cyan-400/[0.05] px-3 py-1.5">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--pe-accent-strong)]" />
             <span className="text-[11px] font-medium text-[var(--pe-accent-strong)]">
               {t(currentLang, "transcribing") || "Transcribing…"}
             </span>
+            {recordingDuration != null && (
+              <span className="font-mono text-[10px] text-[var(--pe-text-faint)]">
+                {`· ${t(currentLang, "recordingDuration") || "duration"} ${formatDuration(recordingDuration)}`}
+              </span>
+            )}
           </div>
         )}
 
@@ -1657,7 +1810,12 @@ export function SpotlightWindow() {
             </span>
             <span className="flex items-center gap-1 text-[10px] text-[var(--pe-text-muted)]">
               <span className="inline-block h-2 w-2 rounded-full bg-[var(--pe-rose-strong)] animate-pulse" />
-              {t(currentLang, "recordingHint") || "Release Alt+V to stop"}
+              <span>{t(currentLang, "recordingHint") || "Release Alt+V to stop"}</span>
+              {recordingSince && (
+                <span className="font-mono text-[var(--pe-text-faint)]">
+                  {`· ${t(currentLang, "recordingSince") || "started at"} ${formatCaptureTime(recordingSince, currentLang)} · ${formatElapsed(recordingSince, elapsedNow)}`}
+                </span>
+              )}
             </span>
             <button
               type="button"

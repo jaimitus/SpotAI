@@ -1,6 +1,6 @@
 [package]
 name = "spotai"
-version = "1.3.0"
+version = "1.3.1"
 description = "SpotAI - ultra-lightweight AI spotlight launcher"
 authors = ["SpotAI Contributors"]
 edition = "2021"

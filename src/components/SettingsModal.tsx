@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   ArrowRightLeft,
   BookOpen,
   Box,
@@ -27,7 +28,7 @@ import {
   X,
 } from "lucide-react";
 import type { Update } from "@tauri-apps/plugin-updater";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../lib/i18n";
 import { resolveTheme, subscribeSystemTheme } from "../lib/theme";
 import { APP_VERSION } from "../lib/version";
@@ -45,6 +46,8 @@ import {
   importSettingsFromFile,
   installWhisper,
   isTauri,
+  listMicrophones,
+  setSelectedMicrophone,
   listenWhisperProgress,
   ollamaDeleteModel,
   ollamaPullModel,
@@ -64,6 +67,7 @@ import type {
   CustomProvider,
   HealthStatus,
   Language,
+  MicDevice,
   OllamaPsModel,
   PromptTemplate,
   WhisperProgressEvent,
@@ -153,6 +157,36 @@ export function SettingsModal({
   const [whisperProgress, setWhisperProgress] = useState<WhisperProgressEvent | null>(null);
   const [whisperError, setWhisperError] = useState<string | null>(null);
 
+  // Microphone picker state
+  const [mics, setMics] = useState<MicDevice[]>([]);
+  const [micsLoading, setMicsLoading] = useState(false);
+  const [micsError, setMicsError] = useState<string | null>(null);
+  // True when the native recognizer reported that Windows has not granted the
+  // app microphone access; shows an actionable warning in the Voice section.
+  const [micPermissionDenied, setMicPermissionDenied] = useState(() => {
+    try {
+      return localStorage.getItem("spotai.mic-permission.v1") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  const loadMics = useCallback(async () => {
+    setMicsLoading(true);
+    setMicsError(null);
+    try {
+      const devices = await listMicrophones();
+      setMics(devices);
+      if (devices.length === 0) {
+        setMicsError(t(settings.language || "en", "noMicrophones"));
+      }
+    } catch (cause) {
+      setMicsError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setMicsLoading(false);
+    }
+  }, [settings.language]);
+
   useEffect(() => {
     if (!open) return;
     setDraft({
@@ -184,7 +218,15 @@ export function SettingsModal({
     setUpdateState("idle");
     setFoundUpdate(null);
     setWhisperError(null);
+    // Re-read the mic permission flag on open: the recognizer may have failed
+    // while the modal was closed.
+    try {
+      setMicPermissionDenied(localStorage.getItem("spotai.mic-permission.v1") === "1");
+    } catch {
+      setMicPermissionDenied(false);
+    }
     void getWhisperStatus().then(setWhisperStatus).catch(() => undefined);
+    void loadMics();
     void (async () => {
       try {
         setKeyStatus(await getApiKeyStatus());
@@ -199,7 +241,7 @@ export function SettingsModal({
         setSaveError(cause instanceof Error ? cause.message : String(cause));
       }
     })();
-  }, [open, settings]);
+  }, [open, settings, loadMics]);
 
   useEffect(() => {
     if (!open) return;
@@ -209,6 +251,20 @@ export function SettingsModal({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // Live-update the mic permission warning when the native recognizer fails
+  // while the modal is already open.
+  useEffect(() => {
+    if (!open) return;
+    const onMicDenied = () => setMicPermissionDenied(true);
+    const onMicCleared = () => setMicPermissionDenied(false);
+    window.addEventListener("spotai:mic-permission-denied", onMicDenied);
+    window.addEventListener("spotai:mic-permission-cleared", onMicCleared);
+    return () => {
+      window.removeEventListener("spotai:mic-permission-denied", onMicDenied);
+      window.removeEventListener("spotai:mic-permission-cleared", onMicCleared);
+    };
+  }, [open]);
 
   // Live whisper download progress.
   useEffect(() => {
@@ -306,6 +362,12 @@ export function SettingsModal({
       } catch {
         // Non-critical; the backend will get the preference on next restart.
       }
+      // Sync the chosen microphone to the Rust backend.
+      try {
+        await setSelectedMicrophone(updated.selectedMic || "");
+      } catch {
+        // Non-critical; falls back to the OS default until the next sync.
+      }
       await saveApiKeys(keys);
       for (const [id, key] of Object.entries(pendingCustomKeys)) {
         if (key.trim()) await saveCustomApiKey(id, key.trim());
@@ -350,6 +412,15 @@ export function SettingsModal({
   const loadOllamaPs = async () => {
     const models = await fetchOllamaPs(draft.ollamaHost);
     setOllamaPs(models);
+  };
+
+  const dismissMicPermission = () => {
+    try {
+      localStorage.removeItem("spotai.mic-permission.v1");
+    } catch {
+      // Best-effort.
+    }
+    setMicPermissionDenied(false);
   };
 
   const handlePullModel = async () => {
@@ -1000,6 +1071,97 @@ export function SettingsModal({
                   </kbd>{" "}
                   {t(currentLang, "voiceInputStatus")}
                 </p>
+
+                {/* Microphone permission warning (native recognizer blocked) */}
+                {micPermissionDenied && (
+                  <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] px-3 py-2.5">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--pe-amber-strong)]" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-medium text-[var(--pe-amber-strong)]">
+                        {t(currentLang, "micPermissionTitle")}
+                      </p>
+                      <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--pe-text-soft)]">
+                        {t(currentLang, "micPermissionDesc")}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={dismissMicPermission}
+                      aria-label={t(currentLang, "dismiss")}
+                      className="shrink-0 rounded-md p-1 text-[var(--pe-text-muted)] transition hover:bg-amber-500/15 hover:text-[var(--pe-amber-strong)]"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Microphone picker */}
+                <div className="space-y-2 rounded-xl border border-cyan-400/20 bg-cyan-400/[0.04] p-3.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--pe-accent-strong)]">
+                      <Mic className="h-3.5 w-3.5" />
+                      {t(currentLang, "micLabel")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void loadMics()}
+                      disabled={micsLoading}
+                      title={t(currentLang, "refreshMics")}
+                      className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)] disabled:opacity-50"
+                    >
+                      <RefreshCw
+                        className={cn("h-3 w-3", micsLoading && "animate-spin")}
+                      />
+                      {t(currentLang, "refresh")}
+                    </button>
+                  </div>
+                  <select
+                    value={draft.selectedMic || ""}
+                    onChange={(e) => update("selectedMic", e.target.value)}
+                    disabled={micsLoading}
+                    className={inputCls}
+                  >
+                    <option value="" className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]">
+                      {t(currentLang, "defaultMicrophone")}
+                    </option>
+                    {mics.map((mic) => (
+                      <option
+                        key={mic.id}
+                        value={mic.name}
+                        className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]"
+                      >
+                        {mic.name}
+                        {mic.isDefault ? ` (${t(currentLang, "micDefaultTag")})` : ""}
+                      </option>
+                    ))}
+                    {draft.selectedMic &&
+                      !mics.some((m) => m.name === draft.selectedMic) && (
+                        <option
+                          value={draft.selectedMic}
+                          className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]"
+                        >
+                          {draft.selectedMic}
+                        </option>
+                      )}
+                  </select>
+                  {micsLoading ? (
+                    <p className="flex items-center gap-1.5 text-[10px] text-[var(--pe-text-muted)]">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      {t(currentLang, "scanningMics")}
+                    </p>
+                  ) : (
+                    <p className="text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                      {mics.length > 0
+                        ? t(currentLang, "micDesc")
+                        : t(currentLang, "noMicrophones")}
+                    </p>
+                  )}
+                  {micsError && mics.length === 0 && (
+                    <p className="break-words text-[10px] text-[var(--pe-rose-strong)]">
+                      {micsError}
+                    </p>
+                  )}
+                </div>
 
                 {/* Whisper install status / download */}
                 {draft.voiceEngine === "whisper" && (

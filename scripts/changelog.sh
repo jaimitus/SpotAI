@@ -87,6 +87,27 @@ emit_sections() {
 # tag has no curated section, so the commit-based fallback is used.
 curated_section() {
   case "$1" in
+    v1.3.1)
+      cat <<'EOF'
+### ✨ New Features
+- 🕐 **Voice Session Indicators**: The recording bar shows when the capture started (localized `started at HH:MM:SS`) plus a live elapsed counter, and the "Transcribing…" bar shows the total processed duration — so old captures are easy to tell apart.
+- ⚠️ **Microphone Permission Warning**: When the Windows native recognizer fails with "speech privacy policy was not accepted", Settings shows an actionable banner (with a friendly toast instead of the cryptic OS error) that clears automatically once a transcription succeeds.
+- 🧹 **Automatic WAV Cleanup**: Recorded WAVs are deleted after transcription on every path (success AND failure), the native engine no longer writes an unused WAV at all, and a startup sweep removes stale voice artifacts older than 24h — the temp folder can never fill the disk.
+- 🔄 **Instant Releases**: The Release workflow now publishes the GitHub release automatically when the build finishes (no manual draft step).
+### 🐛 Bug Fixes
+- 🎯 **Ghost-Click Fix**: A stale `voice-transcribed` error (e.g. the OS recognizer failing while the user is STILL recording) no longer hides the recording bar — the recording state now only resets when the event belongs to the current session.
+EOF
+      ;;
+    v1.3.0)
+      cat <<'EOF'
+### ✨ New Features
+- 🎙️ **Voice Input (Dictation)**: Press **Alt+V** and speak — Windows SAPI transcribes your words straight into the prompt. A dedicated microphone button, per-capture recording bar, and error handling round out the flow.
+- 🧠 **Local Whisper (whisper.cpp) Engine**: Download the binary + tiny model (~75 MB) right from Settings, and dictations are transcribed fully offline with whisper-cli.
+- 🎚️ **Microphone Picker**: Settings lists every input device (with the OS default marked) so you can choose exactly which mic to record from.
+- 🧪 **Voice E2E Tests**: Playwright tests cover recording start/stop, transcription injection, error toasts, browser-mode button hiding, and Whisper download states.
+- 📸 **Visual Documentation**: Screenshots of the Whisper panel and dictation flow are documented in the README.
+EOF
+      ;;
     v1.2.3)
       cat <<'EOF'
 ### ✨ New Features
@@ -275,6 +296,18 @@ if [[ -n "$NEW_TAG" ]]; then
 else
   PREVIOUS="$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.2.0")"
   RANGE="$PREVIOUS..HEAD"
+fi
+
+# Prefer the curated per-version highlights when the release is known (they
+# are richer than raw commit subjects, which are often a single squash line).
+if [[ -n "$NEW_TAG" ]] && section="$(curated_section "$NEW_TAG")"; then
+  {
+    echo "# SpotAI ${VERSION:+v$VERSION}"
+    echo ""
+    printf "%s\n" "$section"
+  } > RELEASE_NOTES.md
+  echo "Wrote RELEASE_NOTES.md (curated highlights for $NEW_TAG)."
+  exit 0
 fi
 
 mapfile -t COMMITS < <(git log --pretty=format:"%s" "$RANGE" 2>/dev/null || true)

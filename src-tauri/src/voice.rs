@@ -7,13 +7,54 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use parking_lot::Mutex;
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
 // ── Types ────────────────────────────────────────────────────────────────────
+
+/// An audio input device (microphone) that can be picked in Settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MicDevice {
+    pub id: String,
+    pub name: String,
+    /// True when this device is the OS default input device.
+    pub is_default: bool,
+}
+
+/// Lists every input device exposed by the default host (WASAPI on Windows),
+/// so the user can choose which microphone to record from.
+pub fn list_microphones() -> Vec<MicDevice> {
+    let host = cpal::default_host();
+    let default_id = host
+        .default_input_device()
+        .and_then(|d| d.name().ok())
+        .unwrap_or_default();
+    let mut devices: Vec<MicDevice> = host
+        .input_devices()
+        .map(|devices| {
+            devices
+                .filter_map(|device| {
+                    let name = device.name().ok()?;
+                    let id = format!("device:{name}");
+                    Some(MicDevice {
+                        is_default: name == default_id,
+                        id,
+                        name,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    // De-duplicate identical names (WASAPI can expose the same device twice).
+    let mut seen = std::collections::HashSet::new();
+    devices.retain(|d| seen.insert(d.name.clone()));
+    devices.sort_by(|a, b| b.is_default.cmp(&a.is_default).then(a.name.cmp(&b.name)));
+    devices
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +78,9 @@ impl VoiceEngine {
 /// we never cross a Send/Sync boundary with it.
 pub struct VoiceState {
     pub engine: Mutex<VoiceEngine>,
+    /// Name of the microphone selected in Settings. When empty, the OS
+    /// default input device is used.
+    pub selected_mic: Mutex<Option<String>>,
     recording: AtomicBool,
     temp_dir: Mutex<Option<PathBuf>>,
     /// Channel to signal the recording thread to stop.
@@ -51,10 +95,21 @@ pub struct VoiceState {
     recognizer_active: Arc<AtomicBool>,
 }
 
+/// Snapshot of the voice capture state, used by the frontend to reconcile its
+/// UI with the backend after a start that raced with the Alt+V shortcut, a
+/// hung recognizer, or when the window is re-shown mid-capture.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceStatus {
+    pub recording: bool,
+    pub engine: VoiceEngine,
+}
+
 impl VoiceState {
     pub fn new() -> Self {
         Self {
             engine: Mutex::new(VoiceEngine::Native),
+            selected_mic: Mutex::new(None),
             recording: AtomicBool::new(false),
             temp_dir: Mutex::new(None),
             stop_tx: Mutex::new(None),
@@ -67,6 +122,14 @@ impl VoiceState {
 
     pub fn set_temp_dir(&self, path: PathBuf) {
         *self.temp_dir.lock() = Some(path);
+    }
+}
+
+/// Returns the current capture state so the frontend can sync its UI.
+pub fn voice_status(state: &VoiceState) -> VoiceStatus {
+    VoiceStatus {
+        recording: state.recording.load(Ordering::Acquire),
+        engine: *state.engine.lock(),
     }
 }
 
@@ -90,10 +153,22 @@ pub fn start_capture(state: &VoiceState, app: AppHandle) -> Result<(), String> {
     let result = state.result.clone();
     done.store(false, Ordering::Release);
 
-    let handle = std::thread::Builder::new()
+    // Which microphone to record from (empty => OS default).
+    let selected_mic = state.selected_mic.lock().clone();
+
+    let handle = match std::thread::Builder::new()
         .name("spotai-voice-recorder".into())
-        .spawn(move || record_thread(stop_rx, done, result))
-        .map_err(|e| format!("Failed to spawn recording thread: {e}"))?;
+        .spawn(move || record_thread(stop_rx, done, result, selected_mic))
+    {
+        Ok(handle) => handle,
+        Err(e) => {
+            // The flag was flipped above; reset it so the backend is not stuck
+            // reporting "already in progress" for the rest of the session.
+            state.recording.store(false, Ordering::Release);
+            *state.stop_tx.lock() = None;
+            return Err(format!("Failed to spawn recording thread: {e}"));
+        }
+    };
 
     *state.handle.lock() = Some(handle);
 
@@ -131,6 +206,14 @@ pub fn stop_capture(state: &VoiceState) -> Result<(PathBuf, f64, VoiceEngine), S
     }
 
     let duration_secs = samples.len() as f64 / 16000.0;
+    let engine = *state.engine.lock();
+    // Only the Whisper engine consumes the recorded WAV (it is transcribed
+    // afterwards and deleted). The native engine transcribes the live mic, so
+    // writing a WAV would just litter the temp dir — return an empty path.
+    if engine != VoiceEngine::Whisper {
+        return Ok((PathBuf::new(), duration_secs, engine));
+    }
+
     let temp_dir = state
         .temp_dir
         .lock()
@@ -140,7 +223,6 @@ pub fn stop_capture(state: &VoiceState) -> Result<(PathBuf, f64, VoiceEngine), S
 
     write_wav(&wav_path, &samples).map_err(|e| format!("Failed to write WAV: {e}"))?;
 
-    let engine = *state.engine.lock();
     Ok((wav_path, duration_secs, engine))
 }
 
@@ -150,10 +232,11 @@ fn record_thread(
     stop_rx: mpsc::Receiver<()>,
     done: Arc<AtomicBool>,
     result: Arc<Mutex<Option<Vec<f32>>>>,
+    selected_mic: Option<String>,
 ) -> Vec<f32> {
     // Build the input stream INSIDE this thread so cpal::Stream lives here.
     let samples = Arc::new(Mutex::new(Vec::new()));
-    let stream = match build_input_stream_on_thread(samples.clone()) {
+    let stream = match build_input_stream_on_thread(samples.clone(), selected_mic.as_deref()) {
         Ok(stream) => stream,
         Err(e) => {
             tracing::error!("voice: failed to build input stream: {e}");
@@ -177,11 +260,42 @@ fn record_thread(
 
 fn build_input_stream_on_thread(
     samples: Arc<Mutex<Vec<f32>>>,
+    selected_mic: Option<&str>,
 ) -> Result<cpal::Stream, String> {
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| "No microphone input device found".to_string())?;
+    // Resolve the device the user picked in Settings; fall back to the OS
+    // default when nothing is selected or the device is no longer present.
+    let device = match selected_mic {
+        Some(name) if !name.trim().is_empty() => {
+            let mut found = None;
+            if let Ok(devices) = host.input_devices() {
+                for candidate in devices {
+                    if candidate.name().ok().as_deref() == Some(name.trim()) {
+                        found = Some(candidate);
+                        break;
+                    }
+                }
+            }
+            match found {
+                Some(device) => device,
+                None => {
+                    tracing::warn!(
+                        "voice: selected microphone \"{name}\" not found, falling back to default"
+                    );
+                    host.default_input_device()
+                        .ok_or_else(|| "No microphone input device found".to_string())?
+                }
+            }
+        }
+        _ => host
+            .default_input_device()
+            .ok_or_else(|| "No microphone input device found".to_string())?,
+    };
+
+    tracing::info!(
+        "voice: recording from \"{}\"",
+        device.name().unwrap_or_else(|_| "unknown device".into())
+    );
 
     let config = device
         .default_input_config()
@@ -253,6 +367,86 @@ fn timestamp_ns() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos()
+}
+
+/// Removes stale voice capture artifacts (recorded WAVs and whisper JSON
+/// output) left in the temp dir by interrupted sessions, crashes or failed
+/// transcriptions. Runs once at startup so a crashed capture can never fill
+/// the disk.
+pub fn cleanup_stale_captures(temp_dir: &Path) {
+    let cutoff = std::time::SystemTime::now()
+        .checked_sub(std::time::Duration::from_secs(24 * 60 * 60))
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+
+    let Ok(entries) = std::fs::read_dir(temp_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        // Only touch our own artifacts (the WAV plus the whisper JSON output
+        // which is named after the WAV with a `.spotai_out.json` suffix).
+        if !name.starts_with("spotai_voice_") {
+            continue;
+        }
+        if !(name.ends_with(".wav") || name.ends_with(".spotai_out.json")) {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        if modified < cutoff {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Sets a file's modification time far in the past so it looks stale.
+    fn age_file(path: &Path) {
+        let old = std::time::SystemTime::UNIX_EPOCH
+            + std::time::Duration::from_secs(1_700_000_000); // ~2023
+        // Open for writing: on Windows `set_modified` needs FILE_WRITE_ATTRIBUTES.
+        let file = std::fs::File::options().write(true).open(path).expect("open file");
+        file.set_modified(old).expect("age file");
+    }
+
+    #[test]
+    fn cleanup_stale_captures_removes_only_old_voice_artifacts() {
+        let dir = std::env::temp_dir().join(format!("spotai_cleanup_test_{}", timestamp_ns()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Old artifacts (must be removed).
+        let old_wav = dir.join("spotai_voice_old.wav");
+        let old_json = dir.join("spotai_voice_old.spotai_out.json");
+        // Fresh artifact (must be kept).
+        let fresh_wav = dir.join("spotai_voice_fresh.wav");
+        // Unrelated file (must be kept).
+        let other = dir.join("notes.txt");
+
+        std::fs::write(&old_wav, b"x").unwrap();
+        std::fs::write(&old_json, b"{}").unwrap();
+        std::fs::write(&fresh_wav, b"x").unwrap();
+        std::fs::write(&other, b"x").unwrap();
+        age_file(&old_wav);
+        age_file(&old_json);
+
+        cleanup_stale_captures(&dir);
+
+        assert!(!old_wav.exists(), "stale WAV must be deleted");
+        assert!(!old_json.exists(), "stale whisper JSON must be deleted");
+        assert!(fresh_wav.exists(), "fresh WAV must be kept");
+        assert!(other.exists(), "unrelated file must be kept");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 // ── Live transcription (Windows WinRT SpeechRecognizer) ────────────────────

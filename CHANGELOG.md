@@ -9,13 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v1.3.0] - 2026-08-10
 
-## 📚 Documentation
-
-- add CHANGELOG entry for v1.2.3
-
-## 📦 Other
-
-- v1.3.0: voice input with SAPI + Whisper, E2E tests, README docs
+### ✨ New Features
+- 🎙️ **Voice Input (Dictation)**: Press **Alt+V** and speak — Windows SAPI transcribes your words straight into the prompt. A dedicated microphone button, per-capture recording bar, and error handling round out the flow.
+- 🧠 **Local Whisper (whisper.cpp) Engine**: Download the binary + tiny model (~75 MB) right from Settings, and dictations are transcribed fully offline with whisper-cli.
+- 🎚️ **Microphone Picker**: Settings lists every input device (with the OS default marked) so you can choose exactly which mic to record from.
+- 🧪 **Voice E2E Tests**: Playwright tests cover recording start/stop, transcription injection, error toasts, browser-mode button hiding, and Whisper download states.
+- 📸 **Visual Documentation**: Screenshots of the Whisper panel and dictation flow are documented in the README.
 
 ## [v1.2.3] - 2026-08-10
 

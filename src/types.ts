@@ -110,6 +110,14 @@ export interface AppSettings {
   autoInsertQuickActions?: boolean;
   /** Speech-to-text engine preference. */
   voiceEngine?: string;
+  /** Name of the microphone chosen in Settings (empty = OS default). */
+  selectedMic?: string;
+}
+
+export interface MicDevice {
+  id: string;
+  name: string;
+  isDefault: boolean;
 }
 
 export interface HealthStatus {
@@ -155,6 +163,13 @@ export interface VoiceCaptureResult {
 export interface VoiceStatusEvent {
   recording: boolean;
   error?: string | null;
+}
+
+/** Snapshot of the backend capture state, queried to reconcile the UI (e.g.
+ *  after a start that raced with the Alt+V shortcut). */
+export interface VoiceStateEvent {
+  recording: boolean;
+  engine: VoiceEngine;
 }
 
 export interface VoiceStoppedEvent {

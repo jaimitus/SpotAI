@@ -184,16 +184,49 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
 
 // ── Transcription ────────────────────────────────────────────────────────────
 
+/// Removes both the source WAV and the whisper JSON output once the
+/// transcription has finished (successfully or not). The recordings are
+/// temporary voice captures living in the temp dir: leaving them behind would
+/// fill the disk with every dictation, so cleanup is guaranteed on every exit
+/// path via RAII.
+struct TranscriptionCleanup<'a> {
+    wav: &'a Path,
+    json: Option<PathBuf>,
+}
+
+impl Drop for TranscriptionCleanup<'_> {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(self.wav);
+        if let Some(json) = &self.json {
+            let _ = std::fs::remove_file(json);
+        }
+    }
+}
+
 /// Transcribes a WAV file with whisper-cli and returns the recognised text.
+///
+/// The source WAV is a temporary capture artifact: it is deleted after the
+/// transcription (success or failure) so the temp dir cannot fill up.
 pub fn transcribe(app: &AppHandle, wav_path: &Path) -> Result<String, String> {
+    // whisper-cli appends `.json` to the -of base path.
+    let out_base = wav_path.with_extension("spotai_out");
+    // whisper-cli appends the extension to the -of base path, so the JSON
+    // lives at `{out_base}.json`. `with_extension` would *replace* the
+    // trailing extension instead of appending, so build the path manually.
+    let json_path = PathBuf::from(format!("{}.json", out_base.display()));
+    // The guard deletes the WAV and the JSON when this function returns, no
+    // matter which branch (including the `?` early returns below).
+    let _cleanup = TranscriptionCleanup {
+        wav: wav_path,
+        json: Some(json_path.clone()),
+    };
+
     if !is_installed(app) {
         return Err("Whisper is not downloaded yet. Open Settings → Voice to install it.".into());
     }
 
     let exe = exe_path(app);
     let model = model_path(app);
-    // whisper-cli appends `.json` to the -of base path.
-    let out_base = wav_path.with_extension("spotai_out");
 
     let output = std::process::Command::new(&exe)
         .arg("-m")
@@ -221,10 +254,6 @@ pub fn transcribe(app: &AppHandle, wav_path: &Path) -> Result<String, String> {
         });
     }
 
-    // whisper-cli appends the extension to the -of base path, so the JSON
-    // lives at `{out_base}.json`. `with_extension` would *replace* the
-    // trailing extension instead of appending, so build the path manually.
-    let json_path = PathBuf::from(format!("{}.json", out_base.display()));
     let raw = std::fs::read_to_string(&json_path)
         .map_err(|_| "whisper-cli produced no output".to_string())?;
     let value: serde_json::Value =
@@ -243,8 +272,6 @@ pub fn transcribe(app: &AppHandle, wav_path: &Path) -> Result<String, String> {
         .unwrap_or_default()
         .trim()
         .to_string();
-
-    let _ = std::fs::remove_file(&json_path);
 
     if text.is_empty() {
         return Err("No speech detected".into());

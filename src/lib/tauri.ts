@@ -4,6 +4,7 @@ import type {
   AppSettings,
   CapturedScreen,
   HealthStatus,
+  MicDevice,
   ModelInfo,
   OllamaPsModel,
   PromptRequest,
@@ -11,6 +12,7 @@ import type {
   ShortcutStatus,
   TokenEvent,
   VoiceCaptureResult,
+  VoiceStateEvent,
   VoiceStatusEvent,
   VoiceStoppedEvent,
   VoiceTranscribedEvent,
@@ -335,8 +337,25 @@ export async function stopVoiceCapture(): Promise<VoiceCaptureResult> {
   return invoke<VoiceCaptureResult>("stop_voice_capture");
 }
 
+/** Returns the backend's current capture state so the UI can reconcile (e.g.
+ *  after a start that raced with the Alt+V shortcut or a hung recognizer). */
+export async function getVoiceState(): Promise<VoiceStateEvent> {
+  if (!isTauri()) return { recording: false, engine: "native" };
+  return invoke<VoiceStateEvent>("voice_state");
+}
+
 export async function setVoiceEngine(engine: string): Promise<void> {
   await invoke("set_voice_engine", { engine });
+}
+
+export async function listMicrophones(): Promise<MicDevice[]> {
+  if (!isTauri()) return [];
+  return invoke<MicDevice[]>("list_microphones");
+}
+
+/** Persists the microphone chosen in Settings; empty string uses the OS default. */
+export async function setSelectedMicrophone(mic: string): Promise<void> {
+  await invoke("set_selected_microphone", { mic });
 }
 
 export async function listenVoiceStatus(

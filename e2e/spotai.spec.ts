@@ -84,12 +84,23 @@ test("input is ready; send stays disabled until a model is available", async ({ 
 // always reports "not installed". To exercise Tauri-backed states we inject a
 // minimal `__TAURI_INTERNALS__` mock that answers the relevant commands like
 // the Rust backend would. `engine` controls what `stop_voice_capture` reports.
-function buildTauriMock(engine: "native" | "whisper" = "native"): string {
+//
+// The voice mock is stateful like the real backend: `start_voice_capture`
+// flips the recording flag before returning, and `voice_state` reflects it.
+// `opts.startError` / `opts.stopError` simulate a backend that is already
+// recording (Alt+V race) or already released, for the reconciliation tests.
+function buildTauriMock(
+  engine: "native" | "whisper" = "native",
+  opts: { startError?: string | null; stopError?: string | null } = {},
+): string {
+  const startError = JSON.stringify(opts.startError ?? null);
+  const stopError = JSON.stringify(opts.stopError ?? null);
   return `
 (() => {
   const callbacks = new Map();
   const listeners = new Map();
   let callbackId = 0;
+  let voiceState = { recording: false, engine: "${engine}" };
   window.__TAURI_INTERNALS__ = {
     metadata: {
       currentWindow: { label: "main" },
@@ -104,6 +115,15 @@ function buildTauriMock(engine: "native" | "whisper" = "native"): string {
       switch (cmd) {
         case "get_whisper_status":
           return { installed: true, installing: false, modelSize: 77718640 };
+        case "list_microphones":
+          return [
+            { id: "device:Microphone Array", name: "Microphone Array", isDefault: true },
+            { id: "device:Headset Mic", name: "Headset Mic", isDefault: false },
+          ];
+        case "set_selected_microphone":
+        case "save_api_keys":
+        case "delete_custom_api_key":
+          return null;
         case "get_api_key_status":
           return {};
         case "check_ollama_health":
@@ -125,11 +145,29 @@ function buildTauriMock(engine: "native" | "whisper" = "native"): string {
           }
           return () => undefined;
         }
+        case "voice_state":
+          return voiceState;
         case "start_voice_capture":
+          if (${startError}) {
+            // The backend is ALREADY capturing (e.g. started by Alt+V): the
+            // call rejects but the capture keeps running, so voice_state must
+            // keep reporting recording: true.
+            voiceState = { ...voiceState, recording: true };
+            throw new Error(${startError});
+          }
+          voiceState = { ...voiceState, recording: true };
+          return null;
         case "set_voice_engine":
         case "transcribe_voice_wav":
           return null;
         case "stop_voice_capture":
+          if (${stopError}) {
+            // The backend already stopped (e.g. Alt+V was released): recording
+            // clears regardless of the rejection.
+            voiceState = { ...voiceState, recording: false };
+            throw new Error(${stopError});
+          }
+          voiceState = { ...voiceState, recording: false };
           return {
             path: "spotai_voice_test.wav",
             durationSecs: 1.2,
@@ -186,6 +224,33 @@ test("whisper without a download still offers the install button", async ({ page
   await expect(voiceSection.getByText("Whisper model ready")).toHaveCount(0);
 });
 
+test("settings lists microphones and persists the chosen one", async ({ page }) => {
+  await page.addInitScript(buildTauriMock());
+  await page.goto("/");
+  await page.getByTitle("Settings (Ctrl+,)").click();
+
+  const voiceSection = page.locator("section", { hasText: "Speech-to-text engine" });
+  const micSelect = voiceSection.locator("select");
+
+  // The mocked backend reports two microphones, the first marked as default.
+  await expect(micSelect.locator("option")).toHaveCount(3); // default + 2 devices
+  await expect(
+    micSelect.locator("option", { hasText: "Microphone Array" }),
+  ).toHaveText(/Microphone Array.*default/);
+
+  // Pick the headset and save. The save closes the modal (its header text is
+  // the visible marker; the toolbar Settings button stays rendered either way).
+  await micSelect.selectOption("Headset Mic");
+  await page.getByRole("button", { name: "Save Settings" }).click();
+  await expect(page.getByText("SpotAI Settings", { exact: true })).toHaveCount(0);
+
+  // The selection is persisted so it survives a reload.
+  const stored = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("spotai.settings.v1") || "{}"),
+  );
+  expect(stored.selectedMic).toBe("Headset Mic");
+});
+
 test("microphone button starts recording when the whisper engine is configured", async ({ page }) => {
   // The mock is what drives the whisper path: `stop_voice_capture` reports
   // engine "whisper", so the stop flow transcribes the WAV. The localStorage
@@ -219,6 +284,43 @@ test("microphone button starts recording when the whisper engine is configured",
   await expect(page.getByText("Transcribing…", { exact: true })).toBeVisible();
 });
 
+test("recording bar shows the session start time", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "spotai.settings.v1",
+      JSON.stringify({ voiceEngine: "whisper" }),
+    );
+  });
+  await page.addInitScript(buildTauriMock("whisper"));
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Voice input" }).click();
+
+  // The recording bar shows a localized "started at HH:MM:SS · MM:SS" session
+  // marker so old captures can be told apart from fresh ones.
+  await expect(page.getByText(/started at \d{2}:\d{2}:\d{2}/)).toBeVisible();
+});
+
+test("transcribing state shows the recorded duration", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "spotai.settings.v1",
+      JSON.stringify({ voiceEngine: "whisper" }),
+    );
+  });
+  await page.addInitScript(buildTauriMock("whisper"));
+  await page.goto("/");
+
+  // Run a capture and stop it: the whisper flow enters the "Transcribing…"
+  // state, which must now also show the length of the processed recording.
+  await page.getByRole("button", { name: "Voice input" }).click();
+  await page.getByRole("button", { name: "Stop recording" }).click();
+
+  await expect(page.getByText("Transcribing…", { exact: true })).toBeVisible();
+  // The mocked backend reports a 1.2s capture → formatted as "00:01".
+  await expect(page.getByText(/duration 00:01/)).toBeVisible();
+});
+
 test("voice-transcribed event injects the recognised text into the prompt", async ({ page }) => {
   await page.addInitScript(buildTauriMock("whisper"));
   await page.goto("/");
@@ -246,6 +348,144 @@ test("voice-transcribed event injects the recognised text into the prompt", asyn
   // The recognised text lands in the prompt and the transcribing state clears.
   await expect(textarea).toHaveValue("Hola, esto es una prueba de voz");
   await expect(page.getByText("Transcribing…", { exact: true })).toHaveCount(0);
+});
+
+test("voice start that races with the backend reconciles into recording instead of an error toast", async ({ page }) => {
+  // The backend is already capturing (e.g. started by Alt+V): start_voice_capture
+  // rejects with "already in progress", but voice_state reports recording: true.
+  // The UI must enter the recording state instead of showing a stale toast that
+  // would leave the button desynced from the real backend.
+  await page.addInitScript(
+    buildTauriMock("native", { startError: "Voice capture is already in progress" }),
+  );
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Voice input" }).click();
+
+  await expect(page.getByText("Recording…", { exact: true })).toBeVisible();
+  await expect(page.getByText("Voice capture is already in progress")).toHaveCount(0);
+
+  // The user can now stop the backend capture normally.
+  await page.getByRole("button", { name: "Stop recording" }).click();
+  await expect(page.getByText("Recording…", { exact: true })).toHaveCount(0);
+});
+
+test("voice stop when the backend already released clears state without an error", async ({ page }) => {
+  // The UI thinks it is recording, but the backend already stopped (e.g. the
+  // user released Alt+V). stop_voice_capture rejects, yet voice_state reports
+  // recording: false → the UI must clear instead of showing an error toast.
+  await page.addInitScript(
+    buildTauriMock("native", { stopError: "No voice capture is in progress" }),
+  );
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Voice input" }).click();
+  await expect(page.getByText("Recording…", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Stop recording" }).click();
+
+  await expect(page.getByText("Recording…", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("No voice capture is in progress")).toHaveCount(0);
+});
+
+test("stale voice-transcribed error during recording does not hide the recording bar", async ({ page }) => {
+  // The OS recognizer can error out WHILE the capture is still running (e.g.
+  // the Windows speech privacy policy is not accepted). That stale event does
+  // not belong to a transcription wait (no stop yet), so it must not reset the
+  // recording state — the backend keeps capturing and the bar stays.
+  await page.addInitScript(buildTauriMock("whisper"));
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Voice input" }).click();
+  await expect(page.getByText("Recording…", { exact: true })).toBeVisible();
+
+  // The recognizer reports a failure while we are still recording.
+  await page.evaluate(() => {
+    (window as unknown as {
+      __tauriEmit: (event: string, payload: unknown) => void;
+    }).__tauriEmit("voice-transcribed", {
+      text: null,
+      error: "RecognizeAsync failed: The speech privacy policy was not accepted",
+    });
+  });
+
+  // The recording continues: the bar and the stop control remain, and the
+  // stale error does NOT surface as a toast.
+  await expect(page.getByText("Recording…", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Stop recording" }),
+  ).toBeVisible();
+  await expect(page.getByText("RecognizeAsync failed")).toHaveCount(0);
+});
+
+test("settings shows a mic permission warning when the native recognizer is blocked", async ({ page }) => {
+  // The native recognizer fails because Windows has not granted the app
+  // microphone access ("speech privacy policy was not accepted"). Settings
+  // must surface an actionable warning instead of leaving the user guessing.
+  await page.addInitScript(buildTauriMock());
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Voice input" }).click();
+  await page.evaluate(() => {
+    (window as unknown as {
+      __tauriEmit: (event: string, payload: unknown) => void;
+    }).__tauriEmit("voice-transcribed", {
+      text: null,
+      error: "RecognizeAsync failed: The speech privacy policy was not accepted",
+    });
+  });
+
+  // Opening Settings reveals the warning in the Voice section.
+  await page.getByTitle("Settings (Ctrl+,)").click();
+  await expect(
+    page.getByText("Microphone permission needed", { exact: true }),
+  ).toBeVisible();
+
+  // Dismissing hides it (and persists the dismissal).
+  await page.getByRole("button", { name: "Dismiss" }).last().click();
+  await expect(
+    page.getByText("Microphone permission needed", { exact: true }),
+  ).toHaveCount(0);
+});
+
+test("a successful transcription clears the mic permission warning live", async ({ page }) => {
+  // Seed the persisted flag so the warning shows even before any error event,
+  // then prove a successful transcription hides it while Settings stays open.
+  await page.addInitScript(() => {
+    localStorage.setItem("spotai.mic-permission.v1", "1");
+  });
+  await page.addInitScript(buildTauriMock("whisper"));
+  await page.goto("/");
+
+  // Run a full capture first (the modal would cover the mic button), then open
+  // Settings: the seeded flag makes the warning visible.
+  await page.getByRole("button", { name: "Voice input" }).click();
+  await page.getByRole("button", { name: "Stop recording" }).click();
+  await page.getByTitle("Settings (Ctrl+,)").click();
+  await expect(
+    page.getByText("Microphone permission needed", { exact: true }),
+  ).toBeVisible();
+
+  // A successful transcription while Settings is open must notify the modal
+  // via the cleared event and hide the warning live.
+  await page.evaluate(() => {
+    (window as unknown as {
+      __tauriEmit: (event: string, payload: unknown) => void;
+    }).__tauriEmit("voice-transcribed", {
+      text: "Esto funciona",
+      error: null,
+    });
+  });
+
+  // The warning disappears without reopening Settings, and the persisted flag
+  // is gone so it does not come back on the next open either.
+  await expect(
+    page.getByText("Microphone permission needed", { exact: true }),
+  ).toHaveCount(0);
+  const stored = await page.evaluate(() =>
+    localStorage.getItem("spotai.mic-permission.v1"),
+  );
+  expect(stored).toBeNull();
 });
 
 test("voice-transcribed error shows the toast instead of injecting text", async ({ page }) => {

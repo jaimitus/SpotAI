@@ -1,12 +1,14 @@
-# SpotAI v1.2.3 🚀
+# SpotAI v1.3.1 🚀
 
 > **The ultra-fast, Raycast-inspired AI Spotlight launcher for Windows.**  
 > Access local LLMs (Ollama, LM Studio) or cloud models (OpenAI, Anthropic, OpenRouter, DeepSeek) anywhere with a single shortcut (`Alt + Space`).
 
-![SpotAI Interface](SpotAI_UI.png)
+| Light theme | Dark theme |
+| :---: | :---: |
+| ![SpotAI in light theme](SpotAI_UI.png) | ![SpotAI in dark theme](SpotAI_UI-dark.png) |
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-orange.svg?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/jaimitus)
-[![Release](https://img.shields.io/badge/version-1.2.3-cyan.svg)](https://github.com/jaimitus/SpotAI/releases)
+[![Release](https://img.shields.io/badge/version-1.3.1-cyan.svg)](https://github.com/jaimitus/SpotAI/releases)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-blue.svg)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Backend-Rust-orange.svg)](https://www.rust-lang.org)
 [![React](https://img.shields.io/badge/Frontend-React%2019-61dafb.svg)](https://reactjs.org)
@@ -63,7 +65,7 @@ Two transcription engines are available in **Settings → General → Speech-to-
 
 - **Unit tests**: `cargo test` covers provider parsing, history bounding, message formatting, host validation and credential masking; `npm test` (Vitest) covers i18n completeness across **en/es/de** and the action prompt templates.
 - **Continuous Integration** (`.github/workflows/ci.yml`): typecheck, unit tests and production build on every push/PR.
-- **Releases** (`.github/workflows/release.yml`): pushing a `vX.Y.Z` tag builds, signs and publishes a GitHub Release with the installers, `.sig` signatures and the `latest.json` updater manifest — no manual steps. The workflow also regenerates [CHANGELOG.md](CHANGELOG.md) from the full tag history and commits it to `main` as `github-actions[bot]`. Requires two repository secrets:
+- **Releases** (`.github/workflows/release.yml`): pushing a `vX.Y.Z` tag builds, signs and **publishes the GitHub Release automatically** (no draft step) with the installers, `.sig` signatures, the portable zip and the `latest.json` updater manifest — zero manual steps. The workflow also regenerates [CHANGELOG.md](CHANGELOG.md) from the full tag history and commits it to `main` as `github-actions[bot]`. Requires two repository secrets:
   - `TAURI_SIGNING_PRIVATE_KEY` — the content of `~/.tauri/spotai.key`
   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the key password (leave empty when the key has none)
 
@@ -109,11 +111,11 @@ Two transcription engines are available in **Settings → General → Speech-to-
 
 ## 🚀 Quick Download & Installation
 
-Download the latest version from [GitHub Releases](https://github.com/jaimitus/SpotAI/releases/tag/v1.2.3):
+Download the latest version from [GitHub Releases](https://github.com/jaimitus/SpotAI/releases/latest):
 
 - 🗂️ **Portable (no install)**: `SpotAI-Portable.zip` — unzip and run `SpotAI.exe` directly, nothing to install (requires Windows 10/11 with WebView2).
-- ⚡ **Installer (NSIS)**: `SpotAI_1.2.3_x64-setup.exe`
-- 📦 **Installer (MSI)**: `SpotAI_1.2.3_x64_en-US.msi`
+- ⚡ **Installer (NSIS)**: `SpotAI_1.3.1_x64-setup.exe`
+- 📦 **Installer (MSI)**: `SpotAI_1.3.1_x64_en-US.msi`
 
 *(All assets — installers, portable zip, updater signatures and `latest.json` — are attached to the GitHub Release. Note: the portable build does not auto-update; use an installer if you want the built-in updater.)*
 
@@ -162,7 +164,11 @@ Download the latest version from [GitHub Releases](https://github.com/jaimitus/S
    export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
    npx tauri build
    ```
-3. **Publish a new GitHub Release** (e.g. push the `v1.2.0` tag — the `release.yml` workflow does everything automatically). The app checks `https://github.com/jaimitus/SpotAI/releases/latest/download/latest.json` on startup, so that file must exist as a release asset. Two ways to get it:
+3. **Publish a new GitHub Release** — just push the tag and the `release.yml` workflow does everything automatically (build, signing, **automatic publishing**, changelog update):
+   ```bash
+   git tag v1.3.1 && git push origin v1.3.1
+   ```
+   The app checks `https://github.com/jaimitus/SpotAI/releases/latest/download/latest.json` on startup, so that file must exist as a release asset. Two ways to get it:
    - **Recommended:** use [`tauri-action`](https://github.com/tauri-apps/tauri-action) in the workflow — it builds, uploads the installers + `.sig` files and generates `latest.json` automatically.
    - **Manual:** upload the installers and their `.sig` files from `src-tauri/target/release/bundle/{msi,nsis}/`, then create `latest.json` with the static format and upload it too:
      ```json
@@ -198,6 +204,9 @@ SpotAI
 │   │   ├── commands.rs      # Tauri API commands (Streaming, Ollama, Browser Launcher)
 │   │   ├── native_input.rs  # Windows native input injection & paste (Ctrl+V)
 │   │   ├── secure_store.rs  # Local DPAPI secure credential storage
+│   │   ├── voice.rs         # Voice capture (cpal) + Windows SAPI dictation
+│   │   ├── whisper.rs       # whisper.cpp download & offline transcription
+│   │   ├── ai/              # LLM providers & streaming (OpenAI-compatible, Ollama)
 │   │   └── lib.rs           # Window management, Tray icon & Global Hotkey
 │   └── tauri.conf.json      # Tauri app configuration & capabilities
 └── src/                     # React 19 Frontend

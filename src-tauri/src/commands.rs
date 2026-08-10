@@ -642,6 +642,13 @@ pub fn stop_voice_capture(
     })
 }
 
+/// Returns the current voice capture state so the UI can stay in sync with
+/// the backend (e.g. when a start raced with the Alt+V shortcut).
+#[tauri::command]
+pub fn voice_state(state: State<'_, voice::VoiceState>) -> voice::VoiceStatus {
+    voice::voice_status(&state)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceCaptureResult {
@@ -657,6 +664,28 @@ pub fn set_voice_engine(
     engine: String,
 ) -> Result<(), String> {
     *state.engine.lock() = voice::VoiceEngine::from_str(&engine);
+    Ok(())
+}
+
+/// Lists every available microphone so Settings can offer a device picker.
+#[tauri::command]
+pub fn list_microphones() -> Vec<voice::MicDevice> {
+    voice::list_microphones()
+}
+
+/// Persists the microphone chosen in Settings; voice capture will record
+/// from it instead of the OS default. Pass an empty string to use the default.
+#[tauri::command]
+pub fn set_selected_microphone(
+    state: State<'_, voice::VoiceState>,
+    mic: String,
+) -> Result<(), String> {
+    let trimmed = mic.trim().to_string();
+    *state.selected_mic.lock() = if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    };
     Ok(())
 }
 
