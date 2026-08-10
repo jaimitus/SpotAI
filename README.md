@@ -26,7 +26,7 @@
 - ⚙️ **System Commands in the `/` Palette**: `/nuevo`, `/tema`, `/captura`, `/incognito`, `/ajustes`, `/ocultar`, `/limpiar`…
 - 🧾 **Manual Context Paste**: Paste or type context by hand, with the capture timestamp shown in the context strip — plus a scrollable preview and always-available refresh/copy/dismiss buttons.
 - 🤖 **Smarter Context Strip**: The captured-context bar is now always visible (with refresh), shows a live scrollable preview, and reports clipboard read failures.
-- 📋 **Automatic Changelog**: Release notes are generated from conventional commits (run `npm run changelog`).
+- 📋 **Automatic Changelog**: Release notes are generated from conventional commits (run `npm run changelog`) and the versioned [CHANGELOG.md](CHANGELOG.md) is rebuilt from all git tags with `npm run changelog:all` — the Release workflow also commits it to the repo automatically.
 - 🧪 **More Tests**: Rust tests for `ollama ps` parsing & retry policy, Vitest for pinned conversations, and Playwright E2E (theme, slash palette, capture button) running in CI.
 
 ---
@@ -100,7 +100,7 @@
 
 - **Unit tests**: `cargo test` covers provider parsing, history bounding, message formatting, host validation and credential masking; `npm test` (Vitest) covers i18n completeness across **en/es/de** and the action prompt templates.
 - **Continuous Integration** (`.github/workflows/ci.yml`): typecheck, unit tests and production build on every push/PR.
-- **Releases** (`.github/workflows/release.yml`): pushing a `vX.Y.Z` tag builds, signs and publishes a GitHub Release with the installers, `.sig` signatures and the `latest.json` updater manifest — no manual steps. Requires two repository secrets:
+- **Releases** (`.github/workflows/release.yml`): pushing a `vX.Y.Z` tag builds, signs and publishes a GitHub Release with the installers, `.sig` signatures and the `latest.json` updater manifest — no manual steps. The workflow also regenerates [CHANGELOG.md](CHANGELOG.md) from the full tag history and commits it to `main` as `github-actions[bot]`. Requires two repository secrets:
   - `TAURI_SIGNING_PRIVATE_KEY` — the content of `~/.tauri/spotai.key`
   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the key password (leave empty when the key has none)
 

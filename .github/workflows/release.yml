@@ -12,6 +12,10 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history + all tags: the changelog steps need to see every tag
+          # to compute version ranges (a shallow clone only knows the current tag).
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -59,3 +63,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.ref_name }}" SpotAI-Portable.zip --repo jaimitus/SpotAI --clobber
+      # Keep the versioned CHANGELOG.md in the repo in sync with this release.
+      # Generates it from all git tags, commits as the bot and pushes to main.
+      # Runs LAST so the release build always uses the exact tag checkout, and
+      # the changelog push can never block publishing. (Pushes made with
+      # GITHUB_TOKEN do not re-trigger other workflows, so no loop.)
+      - name: Update CHANGELOG.md
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B main origin/main
+          bash scripts/changelog.sh --changelog
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "CHANGELOG.md is already up to date - nothing to commit."
+          else
+            git add CHANGELOG.md
+            git commit -m "docs: add CHANGELOG entry for ${{ github.ref_name }}"
+            git push origin main
+            echo "Pushed CHANGELOG.md update for ${{ github.ref_name }}."
+          fi
