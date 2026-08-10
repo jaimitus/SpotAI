@@ -97,6 +97,15 @@ curated_section() {
 - 🧩 **Pure Helpers + Unit Tests**: `formatCaptureTime`/`formatDuration` (`src/lib/format.ts`) and `getVoiceTranscriptionTimeout` (`src/lib/voiceTimeout.ts`) were extracted from the spotlight UI into pure, tested modules — 11 new Vitest cases cover the locale mapping, mm:ss formatting and the timeout bounds (9s native / 20s floor / 5min cap).
 EOF
       ;;
+    v1.3.3)
+      cat <<'EOF'
+### 🐛 Bug Fixes
+- 🎙️ **Dictation Actually Works**: Three fixes make transcription reliable end-to-end. The recorded WAV header now carries the **real device sample rate** (no more hardcoded 16 kHz that made Whisper hear desktop mics at 44.1/48 kHz ~3× slower and fail), the selected **voice engine + microphone are synced to the backend at startup** (no more reverting to the broken native engine after a restart), and silent captures show an honest **"No speech detected"** instead of injecting a `[BLANK_AUDIO]` token.
+### 🧪 Tests
+- 📼 **WAV Header Tests**: New Rust tests prove `write_wav` writes the real sample rate (48 kHz ramp + a 5-rate sweep from 8 to 48 kHz) — regression-proof against the hardcoded header.
+- 🔁 **Startup Sync E2E**: Playwright tests verify the selected Whisper engine *and* microphone are pushed to the backend on boot, reproducing the lost-engine bug exactly.
+EOF
+      ;;
     v1.3.1)
       cat <<'EOF'
 ### ✨ New Features
