@@ -79,6 +79,8 @@ import {
   resolveHost,
   saveSettings,
   setClipboardText,
+  setSelectedMicrophone,
+  setVoiceEngine,
 } from "../lib/tauri";
 import type {
   ActionChipId,
@@ -812,6 +814,15 @@ export function SpotlightWindow() {
 
   useEffect(() => {
     void reloadModels(settings);
+    // Sync the persisted voice preferences to the Rust backend on every boot
+    // (and whenever settings change). The backend starts with the native
+    // engine, so without this a stored Whisper selection would silently
+    // revert to SAPI after an app restart — and dictation would "stop
+    // working" even though Settings still says Whisper.
+    if (isTauri()) {
+      void setVoiceEngine(settings.voiceEngine || "native").catch(() => undefined);
+      void setSelectedMicrophone(settings.selectedMic || "").catch(() => undefined);
+    }
     void getApiKeyStatus().then((status) => {
       setHasCloudKeys(
         Boolean(status.openai || status.anthropic || status.groq || status.deepseek),

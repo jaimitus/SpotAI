@@ -277,6 +277,10 @@ pub fn transcribe(app: &AppHandle, wav_path: &Path) -> Result<String, String> {
             segments
                 .iter()
                 .filter_map(|seg| seg.get("text").and_then(|t| t.as_str()))
+                // Drop whisper's placeholder for silent audio so a quiet
+                // capture reports "No speech detected" instead of injecting
+                // the raw "[BLANK_AUDIO]" token into the prompt.
+                .filter(|segment| *segment != "[BLANK_AUDIO]")
                 .collect::<Vec<&str>>()
                 .join(" ")
         })

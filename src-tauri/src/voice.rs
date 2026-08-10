@@ -85,12 +85,14 @@ pub struct VoiceState {
     temp_dir: Mutex<Option<PathBuf>>,
     /// Channel to signal the recording thread to stop.
     stop_tx: Mutex<Option<mpsc::Sender<()>>>,
-    /// When recording, the thread handle we can join to get samples back.
-    handle: Mutex<Option<std::thread::JoinHandle<Vec<f32>>>>,
+    /// When recording, the thread handle we can join to get samples back
+    /// (paired with the device sample rate).
+    handle: Mutex<Option<std::thread::JoinHandle<(Vec<f32>, u32)>>>,
     /// Flag set when the recording thread has finished and results are ready.
     done: Arc<AtomicBool>,
-    /// Samples collected by the recording thread (moved back on stop).
-    result: Arc<Mutex<Option<Vec<f32>>>>,
+    /// Samples collected by the recording thread (moved back on stop), paired
+    /// with the device sample rate they were captured at.
+    result: Arc<Mutex<Option<(Vec<f32>, u32)>>>,
     /// Guards the WinRT recognizer so only one runs at a time.
     recognizer_active: Arc<AtomicBool>,
 }
@@ -194,18 +196,23 @@ pub fn stop_capture(state: &VoiceState) -> Result<(PathBuf, f64, VoiceEngine), S
         let _ = tx.send(());
     }
 
-    // Join the thread and get the samples.
-    let samples = if let Some(handle) = state.handle.lock().take() {
+    // Join the thread and get the samples plus the rate they were captured at.
+    let (samples, sample_rate) = if let Some(handle) = state.handle.lock().take() {
         handle.join().unwrap_or_default()
     } else {
-        Vec::new()
+        (Vec::new(), 16000)
     };
 
     if samples.is_empty() {
         return Err("No audio captured".into());
     }
 
-    let duration_secs = samples.len() as f64 / 16000.0;
+    // The device records at its own rate (commonly 44100 or 48000 Hz on
+    // Windows WASAPI), never a hardcoded 16000. Using the real rate keeps the
+    // duration honest and the WAV header truthful — a mismatched header would
+    // make whisper hear the audio ~3x slower and fail to transcribe.
+    let sample_rate = sample_rate.max(1);
+    let duration_secs = samples.len() as f64 / sample_rate as f64;
     let engine = *state.engine.lock();
     // Only the Whisper engine consumes the recorded WAV (it is transcribed
     // afterwards and deleted). The native engine transcribes the live mic, so
@@ -221,7 +228,8 @@ pub fn stop_capture(state: &VoiceState) -> Result<(PathBuf, f64, VoiceEngine), S
         .unwrap_or_else(std::env::temp_dir);
     let wav_path = temp_dir.join(format!("spotai_voice_{}.wav", timestamp_ns()));
 
-    write_wav(&wav_path, &samples).map_err(|e| format!("Failed to write WAV: {e}"))?;
+    write_wav(&wav_path, &samples, sample_rate)
+        .map_err(|e| format!("Failed to write WAV: {e}"))?;
 
     Ok((wav_path, duration_secs, engine))
 }
@@ -231,19 +239,20 @@ pub fn stop_capture(state: &VoiceState) -> Result<(PathBuf, f64, VoiceEngine), S
 fn record_thread(
     stop_rx: mpsc::Receiver<()>,
     done: Arc<AtomicBool>,
-    result: Arc<Mutex<Option<Vec<f32>>>>,
+    result: Arc<Mutex<Option<(Vec<f32>, u32)>>>,
     selected_mic: Option<String>,
-) -> Vec<f32> {
+) -> (Vec<f32>, u32) {
     // Build the input stream INSIDE this thread so cpal::Stream lives here.
     let samples = Arc::new(Mutex::new(Vec::new()));
-    let stream = match build_input_stream_on_thread(samples.clone(), selected_mic.as_deref()) {
-        Ok(stream) => stream,
-        Err(e) => {
-            tracing::error!("voice: failed to build input stream: {e}");
-            done.store(true, Ordering::Release);
-            return Vec::new();
-        }
-    };
+    let (stream, sample_rate) =
+        match build_input_stream_on_thread(samples.clone(), selected_mic.as_deref()) {
+            Ok(pair) => pair,
+            Err(e) => {
+                tracing::error!("voice: failed to build input stream: {e}");
+                done.store(true, Ordering::Release);
+                return (Vec::new(), 16000);
+            }
+        };
 
     // Block until the stop signal arrives.
     let _ = stop_rx.recv();
@@ -253,15 +262,15 @@ fn record_thread(
     std::thread::sleep(std::time::Duration::from_millis(150));
 
     let recorded = std::mem::take(&mut *samples.lock());
-    *result.lock() = Some(recorded.clone());
+    *result.lock() = Some((recorded.clone(), sample_rate));
     done.store(true, Ordering::Release);
-    recorded
+    (recorded, sample_rate)
 }
 
 fn build_input_stream_on_thread(
     samples: Arc<Mutex<Vec<f32>>>,
     selected_mic: Option<&str>,
-) -> Result<cpal::Stream, String> {
+) -> Result<(cpal::Stream, u32), String> {
     let host = cpal::default_host();
     // Resolve the device the user picked in Settings; fall back to the OS
     // default when nothing is selected or the device is no longer present.
@@ -300,6 +309,8 @@ fn build_input_stream_on_thread(
     let config = device
         .default_input_config()
         .map_err(|e| format!("Could not read default input config: {e}"))?;
+    // Capture the real rate BEFORE `config.into()` consumes it below.
+    let sample_rate = config.sample_rate().0;
 
     let err_fn = |err| tracing::error!("cpal input stream error: {err}");
 
@@ -340,15 +351,21 @@ fn build_input_stream_on_thread(
         .play()
         .map_err(|e| format!("Could not start recording: {e}"))?;
 
-    Ok(stream)
+    Ok((stream, sample_rate))
 }
 
 // ── WAV writing ──────────────────────────────────────────────────────────────
 
-fn write_wav(path: &std::path::Path, samples: &[f32]) -> Result<(), hound::Error> {
+fn write_wav(
+    path: &std::path::Path,
+    samples: &[f32],
+    sample_rate: u32,
+) -> Result<(), hound::Error> {
     let spec = hound::WavSpec {
         channels: 1,
-        sample_rate: 16000,
+        // Write the REAL capture rate in the header. whisper-cli resamples
+        // internally, so it decodes the audio at the correct speed.
+        sample_rate,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
