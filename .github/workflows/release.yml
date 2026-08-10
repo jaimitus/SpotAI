@@ -21,10 +21,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      # Auto-generate the release notes from conventional commits.
+      # Auto-generate the release notes from conventional commits and expose
+      # them as an output (tauri-action only accepts inline releaseBody).
       - name: Generate changelog
+        id: changelog
         shell: bash
-        run: bash scripts/changelog.sh "${{ github.ref_name }}"
+        run: |
+          bash scripts/changelog.sh "${{ github.ref_name }}"
+          {
+            echo "body<<EOF"
+            cat RELEASE_NOTES.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -36,7 +44,7 @@ jobs:
           projectPath: src-tauri
           tagName: v__VERSION__
           releaseName: "SpotAI v__VERSION__"
-          releaseBodyFile: RELEASE_NOTES.md
+          releaseBody: ${{ steps.changelog.outputs.body }}
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
