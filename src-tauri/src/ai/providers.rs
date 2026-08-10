@@ -123,6 +123,98 @@ fn bounded_history(history: &[ChatMessage]) -> Vec<ChatMessage> {
     items
 }
 
+/// Enforces Anthropic-compatible message ordering: the list must start with a
+/// user turn, alternate strictly between user and assistant, and end with an
+/// assistant turn so the incoming user prompt can be appended cleanly.
+/// Consecutive same-role turns are merged; a dangling trailing user turn is
+/// dropped because it represents a question that was never answered.
+fn normalize_history(history: &[ChatMessage]) -> Vec<ChatMessage> {
+    let mut out: Vec<ChatMessage> = Vec::with_capacity(history.len());
+    for message in history {
+        if message.content.trim().is_empty()
+            || (message.role != "user" && message.role != "assistant")
+        {
+            continue;
+        }
+        let role: &'static str = if message.role == "user" {
+            "user"
+        } else {
+            "assistant"
+        };
+        if let Some(last) = out.last_mut() {
+            if last.role == role {
+                // Merge consecutive same-role turns (e.g. an assistant reply was
+                // lost, leaving two user messages back to back).
+                last.content.push('\n');
+                last.content.push_str(&message.content);
+                continue;
+            }
+        } else if role == "assistant" {
+            // The history cannot start with an assistant turn; the preceding
+            // user context is gone, so this orphaned reply is dropped.
+            continue;
+        }
+        out.push(ChatMessage {
+            role: role.into(),
+            content: message.content.clone(),
+        });
+    }
+    if out.last().map(|message| message.role.as_str()) == Some("user") {
+        out.pop();
+    }
+    out
+}
+
+/// An image decoded from a data URL, ready for provider-specific payloads.
+struct ImageInput {
+    mime: String,
+    data: String,
+}
+
+/// Parses "data:<mime>;base64,<payload>" into (mime, base64). Returns an error
+/// with a friendly message when the payload is missing or clearly invalid.
+fn parse_image_data_url(url: Option<&str>) -> Result<Option<ImageInput>, ProviderError> {
+    let Some(url) = url.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let Some(rest) = url.strip_prefix("data:") else {
+        return Err(ProviderError::Other(
+            "The image must be a data URL (data:<mime>;base64,...)".into(),
+        ));
+    };
+    let Some((meta, payload)) = rest.split_once(',') else {
+        return Err(ProviderError::Other(
+            "Malformed image data URL: missing base64 payload".into(),
+        ));
+    };
+    let Some(mime) = meta.strip_suffix(";base64") else {
+        return Err(ProviderError::Other(
+            "Malformed image data URL: expected ;base64 encoding".into(),
+        ));
+    };
+    let mime = mime.trim().to_ascii_lowercase();
+    let payload = payload.trim();
+    // Validate only the edges: a full scan would iterate megabytes of base64 on
+    // large screenshots for little safety, since the webview always produces a
+    // well-formed data URL.
+    let valid_edges = {
+        let head = payload.chars().take(1024);
+        let tail_start = payload.len().saturating_sub(1024);
+        let tail = payload[tail_start..].chars();
+        head.chain(tail)
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '='))
+    };
+    if mime.is_empty() || payload.is_empty() || !valid_edges {
+        return Err(ProviderError::Other(
+            "Malformed image data URL: invalid base64 payload".into(),
+        ));
+    }
+    Ok(Some(ImageInput {
+        mime,
+        data: payload.into(),
+    }))
+}
+
 fn message_pairs(
     system: &str,
     history: &[ChatMessage],
@@ -152,6 +244,8 @@ pub struct PromptRequest {
     pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
     pub history: Vec<ChatMessage>,
+    /// A data URL ("data:<mime>;base64,...") for a vision-capable model.
+    pub image_data_url: Option<String>,
     pub request_id: String,
 }
 
@@ -404,13 +498,21 @@ async fn stream_ollama(
     system: &str,
     history: &[ChatMessage],
     user: &str,
+    image: Option<&ImageInput>,
     cancel: &StreamCancel,
 ) -> Result<(), ProviderError> {
     let host = validate_host(request.host.as_deref().unwrap_or(DEFAULT_OLLAMA_HOST))?;
+    let mut messages = message_pairs(system, history, user, true);
+    // Ollama attaches images to the final user message as a base64 list.
+    if let Some(image) = image {
+        if let Some(last) = messages.last_mut() {
+            last["images"] = json!([image.data]);
+        }
+    }
     let body = json!({
         "model": request.model,
         "stream": true,
-        "messages": message_pairs(system, history, user, true),
+        "messages": messages,
         "options": { "temperature": request.temperature.unwrap_or(0.7) }
     });
     let response = send_cancellable(
@@ -475,6 +577,25 @@ fn uses_openai_completion_tokens(kind: &ProviderKind, model: &str) -> bool {
             || model.starts_with("o4"))
 }
 
+fn openai_user_message(user: &str, image: Option<&ImageInput>) -> Value {
+    if let Some(image) = image {
+        json!({
+            "role": "user",
+            "content": [
+                { "type": "text", "text": user },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": format!("data:{};base64,{}", image.mime, image.data)
+                    }
+                }
+            ]
+        })
+    } else {
+        json!({ "role": "user", "content": user })
+    }
+}
+
 async fn stream_openai_compatible(
     client: &Client,
     app: &AppHandle,
@@ -483,8 +604,16 @@ async fn stream_openai_compatible(
     system: &str,
     history: &[ChatMessage],
     user: &str,
+    image: Option<&ImageInput>,
     cancel: &StreamCancel,
 ) -> Result<(), ProviderError> {
+    // DeepSeek's API has no vision support; fail fast with a helpful message.
+    if *kind == ProviderKind::DeepSeek && image.is_some() {
+        return Err(ProviderError::Other(
+            "DeepSeek does not support image input. Switch to a vision-capable model or provider."
+                .into(),
+        ));
+    }
     if kind.requires_api_key()
         && request
             .api_key
@@ -498,10 +627,14 @@ async fn stream_openai_compatible(
 
     let base = compatible_base_url(kind, request.host.as_deref())?;
     let reasoning_model = uses_openai_completion_tokens(kind, &request.model);
+    let mut messages = message_pairs(system, history, user, true);
+    if let Some(last) = messages.last_mut() {
+        *last = openai_user_message(user, image);
+    }
     let mut body = json!({
         "model": request.model,
         "stream": true,
-        "messages": message_pairs(system, history, user, true)
+        "messages": messages
     });
     if !reasoning_model {
         body["temperature"] = json!(request.temperature.unwrap_or(0.7));
@@ -565,6 +698,27 @@ async fn parse_openai_sse(
     Ok(())
 }
 
+fn anthropic_user_message(user: &str, image: Option<&ImageInput>) -> Value {
+    if let Some(image) = image {
+        json!({
+            "role": "user",
+            "content": [
+                { "type": "text", "text": user },
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image.mime,
+                        "data": image.data
+                    }
+                }
+            ]
+        })
+    } else {
+        json!({ "role": "user", "content": user })
+    }
+}
+
 async fn stream_anthropic(
     client: &Client,
     app: &AppHandle,
@@ -572,6 +726,7 @@ async fn stream_anthropic(
     system: &str,
     history: &[ChatMessage],
     user: &str,
+    image: Option<&ImageInput>,
     cancel: &StreamCancel,
 ) -> Result<(), ProviderError> {
     let key = request
@@ -580,13 +735,17 @@ async fn stream_anthropic(
         .map(str::trim)
         .filter(|key| !key.is_empty())
         .ok_or_else(|| ProviderError::MissingApiKey("Anthropic".into()))?;
+    let mut messages = message_pairs("", history, user, false);
+    if let Some(last) = messages.last_mut() {
+        *last = anthropic_user_message(user, image);
+    }
     let body = json!({
         "model": request.model,
         "max_tokens": request.max_tokens.unwrap_or(4096),
         "stream": true,
         "temperature": request.temperature.unwrap_or(0.7),
         "system": system,
-        "messages": message_pairs("", history, user, false)
+        "messages": messages
     });
     let response = send_cancellable(
         client
@@ -658,6 +817,7 @@ pub async fn stream_prompt(
         return Err(error);
     }
 
+    let image = parse_image_data_url(request.image_data_url.as_deref())?;
     let kind = ProviderKind::parse(&request.provider)?;
     let system_str: String = match request.system_prompt.as_deref().map(str::trim) {
         // Keep the <context> trust boundary even when the user supplies a custom
@@ -669,13 +829,33 @@ pub async fn stream_prompt(
     };
     let system = system_str.as_str();
     let user = compose_user_message(&request.prompt, request.context_text.as_deref());
-    let history = bounded_history(&request.history);
+    let history = normalize_history(&bounded_history(&request.history));
     let result = match kind {
         ProviderKind::Ollama => {
-            stream_ollama(client, &app, &request, system, &history, &user, &cancel).await
+            stream_ollama(
+                client,
+                &app,
+                &request,
+                system,
+                &history,
+                &user,
+                image.as_ref(),
+                &cancel,
+            )
+            .await
         }
         ProviderKind::Anthropic => {
-            stream_anthropic(client, &app, &request, system, &history, &user, &cancel).await
+            stream_anthropic(
+                client,
+                &app,
+                &request,
+                system,
+                &history,
+                &user,
+                image.as_ref(),
+                &cancel,
+            )
+            .await
         }
         ProviderKind::LmStudio
         | ProviderKind::OpenAI
@@ -690,6 +870,7 @@ pub async fn stream_prompt(
                 system,
                 &history,
                 &user,
+                image.as_ref(),
                 &cancel,
             )
             .await
@@ -869,5 +1050,68 @@ mod tests {
         assert!(composed.contains("untrusted"));
         assert_eq!(compose_user_message("Hi", None), "Hi");
         assert_eq!(compose_user_message("Hi", Some("   ")), "Hi");
+    }
+
+    #[test]
+    fn normalize_history_enforces_alternation_and_user_first() {
+        let history = vec![
+            message("assistant", "orphaned reply"),
+            message("user", "hello"),
+            message("user", "follow-up"),
+            message("assistant", "answer"),
+            message("user", "dangling question"),
+        ];
+        let kept = normalize_history(&history);
+        assert_eq!(kept.len(), 2);
+        // Orphaned leading assistant and trailing user are dropped; the two
+        // consecutive user turns are merged into one complete turn.
+        assert_eq!(kept[0].role, "user");
+        assert_eq!(kept[0].content, "hello\nfollow-up");
+        assert_eq!(kept[1].role, "assistant");
+        assert_eq!(kept[1].content, "answer");
+        // Must end on an assistant turn so the live prompt can be appended.
+        assert_eq!(kept.last().unwrap().role, "assistant");
+    }
+
+    #[test]
+    fn normalize_history_drops_trailing_user_for_clean_append() {
+        let history = vec![message("user", "hello"), message("assistant", "answer")];
+        let kept = normalize_history(&history);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept.last().unwrap().role, "assistant");
+
+        // Two unanswered user turns merge into one, which is then dropped as a
+        // dangling trailing user so nothing precedes the live prompt.
+        let dangling = vec![message("user", "hello"), message("user", "again")];
+        let kept = normalize_history(&dangling);
+        assert!(kept.is_empty());
+    }
+
+    #[test]
+    fn parse_image_data_url_extracts_mime_and_payload() {
+        let parsed = parse_image_data_url(Some(
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==",
+        ))
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed.mime, "image/png");
+        assert_eq!(parsed.data, "iVBORw0KGgoAAAANSUhEUg==");
+        assert!(parse_image_data_url(None).unwrap().is_none());
+        assert!(parse_image_data_url(Some("   ")).unwrap().is_none());
+    }
+
+    #[test]
+    fn parse_image_data_url_rejects_malformed_input() {
+        for bad in [
+            "not-a-data-url",
+            "data:text/plain,puretext",
+            "data:image/png;base64,has spaces!",
+            "data:;base64,",
+        ] {
+            assert!(
+                parse_image_data_url(Some(bad)).is_err(),
+                "expected rejection for {bad:?}"
+            );
+        }
     }
 }

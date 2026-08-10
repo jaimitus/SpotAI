@@ -1,9 +1,13 @@
 import {
   Cloud,
+  Download,
   ExternalLink,
   Eye,
   EyeOff,
   Globe,
+  Loader2,
+  Monitor,
+  Moon,
   Pencil,
   Plus,
   RefreshCw,
@@ -11,20 +15,29 @@ import {
   Save,
   Settings2,
   Sparkles,
+  Sun,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
+import type { Update } from "@tauri-apps/plugin-updater";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../lib/i18n";
+import { resolveTheme, subscribeSystemTheme } from "../lib/theme";
 import { APP_VERSION } from "../lib/version";
 import {
   checkOllamaHealth,
+  confirmDialog,
   deleteApiKey,
   deleteCustomApiKey,
+  exportSettingsToFile,
   getApiKeyStatus,
   getCustomApiKeyStatus,
+  importSettingsFromFile,
   isTauri,
   openExternalUrl,
+  pickOpenPath,
+  pickSavePath,
   registerShortcut,
   saveApiKeys,
   saveCustomApiKey,
@@ -84,6 +97,14 @@ export function SettingsModal({
   const [newLabel, setNewLabel] = useState("");
   const [newPrompt, setNewPrompt] = useState("");
 
+  // Data & updates state
+  const [updateState, setUpdateState] = useState<
+    "idle" | "checking" | "uptodate" | "available" | "failed"
+  >("idle");
+  const [foundUpdate, setFoundUpdate] = useState<Update | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [dataMsg, setDataMsg] = useState<string | null>(null);
+
   useEffect(() => {
     if (!open) return;
     setDraft({
@@ -110,6 +131,9 @@ export function SettingsModal({
     setPendingCustomKeys({});
     setPendingCustomDeletes([]);
     setSaveError(null);
+    setDataMsg(null);
+    setUpdateState("idle");
+    setFoundUpdate(null);
     void (async () => {
       try {
         setKeyStatus(await getApiKeyStatus());
@@ -134,6 +158,24 @@ export function SettingsModal({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // Live-preview the theme while the modal is open (like the language picker),
+  // and restore the saved theme if the modal is closed/cancelled. When the
+  // draft is "system", follow the OS color scheme live too.
+  useEffect(() => {
+    if (!open) return;
+    document.documentElement.dataset.theme = resolveTheme(draft.theme);
+    let unsubscribe: (() => void) | undefined;
+    if ((draft.theme || "dark") === "system") {
+      unsubscribe = subscribeSystemTheme(() => {
+        document.documentElement.dataset.theme = resolveTheme("system");
+      });
+    }
+    return () => {
+      unsubscribe?.();
+      document.documentElement.dataset.theme = resolveTheme(settings.theme);
+    };
+  }, [open, draft.theme, settings.theme]);
 
   if (!open) return null;
 
@@ -314,6 +356,112 @@ export function SettingsModal({
     }));
   };
 
+  const handleExportSettings = async () => {
+    setDataMsg(null);
+    setSaveError(null);
+    try {
+      const path = await pickSavePath("spotai-settings.json");
+      if (!path) return;
+      const payload = JSON.stringify(
+        {
+          ...draft,
+          customActions: draft.customActions || [],
+          customProviders: draft.customProviders || [],
+        },
+        null,
+        2,
+      );
+      await exportSettingsToFile(path, payload);
+      setDataMsg(t(currentLang, "settingsExported"));
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const handleImportSettings = async () => {
+    setDataMsg(null);
+    setSaveError(null);
+    const path = await pickOpenPath();
+    if (!path) return;
+    try {
+      const raw = await importSettingsFromFile(path);
+      const parsed = JSON.parse(raw) as Partial<AppSettings>;
+      if (typeof parsed !== "object" || parsed === null) throw new Error("Invalid JSON");
+      setDraft((d) => ({
+        ...d,
+        ...parsed,
+        language: parsed.language || d.language,
+        customActions: parsed.customActions ?? d.customActions ?? [],
+        customProviders: parsed.customProviders ?? d.customProviders ?? [],
+      }));
+      setDataMsg(t(currentLang, "settingsImported"));
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const handleCheckUpdates = async () => {
+    setUpdateState("checking");
+    setDataMsg(null);
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
+      if (update) {
+        setFoundUpdate(update);
+        setUpdateState("available");
+      } else {
+        setUpdateState("uptodate");
+      }
+    } catch {
+      setUpdateState("failed");
+    }
+  };
+
+  const installFoundUpdate = async () => {
+    if (!foundUpdate || installing) return;
+    setInstalling(true);
+    try {
+      await foundUpdate.downloadAndInstall();
+      const { relaunch } = await import("@tauri-apps/plugin-process");
+      await relaunch();
+    } catch {
+      setUpdateState("failed");
+      setInstalling(false);
+    }
+  };
+
+  const handleClearData = async (
+    kind: "history" | "conversations" | "keys",
+  ) => {
+    const ok = await confirmDialog(t(currentLang, "confirmClear"));
+    if (!ok) return;
+    if (kind === "history") {
+      localStorage.removeItem("spotai.prompt-history.v2");
+      localStorage.removeItem("spotai.prompt-history.v1");
+    } else if (kind === "conversations") {
+      localStorage.removeItem("spotai.conversation.v1");
+      localStorage.removeItem("spotai.conversations.v2");
+      localStorage.removeItem("spotai.active-conversation.v1");
+      // Let the overlay drop its in-memory chat state.
+      window.dispatchEvent(new CustomEvent("spotai:conversations-cleared"));
+    } else {
+      for (const id of ["openai", "anthropic", "groq", "deepseek"]) {
+        await deleteApiKey(id).catch(() => undefined);
+      }
+      for (const cp of draft.customProviders || []) {
+        await deleteCustomApiKey(cp.id).catch(() => undefined);
+      }
+      setKeyStatus({});
+      setCustomKeyStatus({});
+      // Also drop unsaved key entries typed in this session so a later Save
+      // cannot re-persist them.
+      setKeys({});
+      setPendingCustomKeys({});
+      setPendingCustomDeletes([]);
+    }
+    setDataMsg(t(currentLang, "dataCleared"));
+  };
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       {/* Transparent click-catcher: closes on outside click without dimming
@@ -323,12 +471,12 @@ export function SettingsModal({
       <div
         className={cn(
           "relative z-10 flex max-h-[min(660px,92vh)] w-full max-w-lg flex-col overflow-hidden",
-          "rounded-2xl border border-white/10 bg-[#0c0e14] shadow-2xl shadow-black/80",
+          "rounded-2xl border border-[var(--pe-border)] bg-[var(--pe-bg-2)] shadow-2xl shadow-black/80",
         )}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5">
-          <div className="flex items-center gap-2 text-zinc-100">
+        <div className="flex items-center justify-between border-b border-[var(--pe-border-soft)] px-5 py-3.5">
+          <div className="flex items-center gap-2 text-[var(--pe-text-strong)]">
             <Settings2 className="h-4 w-4 text-cyan-400" />
             <h2 className="text-sm font-semibold tracking-tight">
               {t(currentLang, "settingsHeader")}
@@ -337,14 +485,14 @@ export function SettingsModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300"
+            className="rounded-lg p-1.5 text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-1 border-b border-white/[0.06] bg-white/[0.01] px-4 py-2">
+        <div className="flex items-center gap-1 border-b border-[var(--pe-border-soft)] bg-[var(--pe-input)] px-4 py-2">
           {(
             [
               ["general", t(currentLang, "tabGeneral")],
@@ -359,8 +507,8 @@ export function SettingsModal({
               className={cn(
                 "rounded-lg px-3 py-1.5 text-[12px] font-medium transition-all select-none",
                 activeTab === tabKey
-                  ? "bg-cyan-400/15 text-cyan-300 border border-cyan-400/30"
-                  : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent",
+                  ? "bg-cyan-400/15 text-[var(--pe-accent-strong)] border border-cyan-400/30"
+                  : "text-[var(--pe-text-soft)] hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)] border border-transparent",
               )}
             >
               {label}
@@ -374,7 +522,7 @@ export function SettingsModal({
           {activeTab === "general" && (
             <>
               <section className="space-y-3">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
                   <Globe className="h-3.5 w-3.5 text-cyan-400" />
                   <span>{t(currentLang, "languageLabel")}</span>
                 </div>
@@ -384,21 +532,79 @@ export function SettingsModal({
                     onChange={(e) => update("language", e.target.value as Language)}
                     className={inputCls}
                   >
-                    <option value="en" className="bg-[#0c0e14] text-zinc-100">
+                    <option value="en" className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]">
                       🇺🇸 English (Default)
                     </option>
-                    <option value="es" className="bg-[#0c0e14] text-zinc-100">
+                    <option value="es" className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]">
                       🇪🇸 Español (España)
                     </option>
-                    <option value="de" className="bg-[#0c0e14] text-zinc-100">
+                    <option value="de" className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]">
                       🇩🇪 Deutsch (German)
+                    </option>
+                    <option value="pt" className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]">
+                      🇵🇹 Português
+                    </option>
+                    <option value="fr" className="bg-[var(--pe-bg-2)] text-[var(--pe-text-strong)]">
+                      🇫🇷 Français
                     </option>
                   </select>
                 </Field>
               </section>
 
+              {/* Appearance */}
+              <section className="space-y-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
+                  <Sun className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>{t(currentLang, "themeLabel")}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => update("theme", "dark")}
+                    className={cn(
+                      "inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-[11px] font-medium transition select-none",
+                      (draft.theme || "dark") === "dark"
+                        ? "border-cyan-400/40 bg-cyan-400/10 text-[var(--pe-accent-strong)]"
+                        : "border-[var(--pe-border)] bg-[var(--pe-input)] text-[var(--pe-text-soft)] hover:bg-[var(--pe-hover)]",
+                    )}
+                  >
+                    <Moon className="h-3.5 w-3.5" />
+                    {t(currentLang, "themeDark")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => update("theme", "system")}
+                    className={cn(
+                      "inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-[11px] font-medium transition select-none",
+                      (draft.theme || "dark") === "system"
+                        ? "border-cyan-400/40 bg-cyan-400/10 text-[var(--pe-accent-strong)]"
+                        : "border-[var(--pe-border)] bg-[var(--pe-input)] text-[var(--pe-text-soft)] hover:bg-[var(--pe-hover)]",
+                    )}
+                  >
+                    <Monitor className="h-3.5 w-3.5" />
+                    {t(currentLang, "themeSystem")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => update("theme", "light")}
+                    className={cn(
+                      "inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-[11px] font-medium transition select-none",
+                      draft.theme === "light"
+                        ? "border-cyan-400/40 bg-cyan-400/10 text-[var(--pe-accent-strong)]"
+                        : "border-[var(--pe-border)] bg-[var(--pe-input)] text-[var(--pe-text-soft)] hover:bg-[var(--pe-hover)]",
+                    )}
+                  >
+                    <Sun className="h-3.5 w-3.5" />
+                    {t(currentLang, "themeLight")}
+                  </button>
+                </div>
+                <p className="text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                  {t(currentLang, "themeDesc")}
+                </p>
+              </section>
+
               <section className="space-y-3 pt-2">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-muted)]">
                   {t(currentLang, "generationLimits")}
                 </h3>
                 <div className="grid grid-cols-2 gap-3">
@@ -435,7 +641,7 @@ export function SettingsModal({
 
               {/* Shortcut info */}
               <section className="space-y-3">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
                   <Settings2 className="h-3.5 w-3.5 text-cyan-400" />
                   <span>{t(currentLang, "globalHotkeyLabel")}</span>
                 </div>
@@ -447,19 +653,19 @@ export function SettingsModal({
                   spellCheck={false}
                   autoComplete="off"
                 />
-                <p className="text-[10px] text-zinc-500 leading-relaxed">
+                <p className="text-[10px] text-[var(--pe-text-muted)] leading-relaxed">
                   {t(currentLang, "shortcutSyntaxHint")}
                 </p>
-                <p className="text-[10px] text-zinc-500 leading-relaxed">
+                <p className="text-[10px] text-[var(--pe-text-muted)] leading-relaxed">
                   {t(currentLang, "escHidesWindow")}{" "}
-                  <span className="text-zinc-700">|</span>{" "}
+                  <span className="text-[var(--pe-text-faint)]">|</span>{" "}
                   {t(currentLang, "runsInTray")}
                 </p>
               </section>
 
               {/* Startup: launch SpotAI with Windows */}
               <section className="space-y-3">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
                   <Rocket className="h-3.5 w-3.5 text-cyan-400" />
                   <span>{t(currentLang, "startupLabel")}</span>
                 </div>
@@ -468,20 +674,20 @@ export function SettingsModal({
                   role="switch"
                   aria-checked={autostartEnabled}
                   onClick={() => toggleAutostart(!autostartEnabled)}
-                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-left transition hover:bg-white/[0.05]"
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-[var(--pe-border)] bg-[var(--pe-input)] px-3.5 py-2.5 text-left transition hover:bg-[var(--pe-hover)]"
                 >
                   <span>
-                    <span className="block text-[12px] font-medium text-zinc-200">
+                    <span className="block text-[12px] font-medium text-[var(--pe-text)]">
                       {t(currentLang, "startupLabel")}
                     </span>
-                    <span className="mt-0.5 block text-[10px] leading-relaxed text-zinc-500">
+                    <span className="mt-0.5 block text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
                       {t(currentLang, "startupDesc")}
                     </span>
                   </span>
                   <span
                     className={cn(
                       "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
-                      autostartEnabled ? "bg-cyan-500/80" : "bg-white/10",
+                      autostartEnabled ? "bg-cyan-500/80" : "bg-[var(--pe-input-hover)]",
                     )}
                   >
                     <span
@@ -495,7 +701,7 @@ export function SettingsModal({
               </section>
 
               <section className="space-y-3">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
                   <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
                   <span>{t(currentLang, "systemPromptLabel")}</span>
                 </div>
@@ -509,6 +715,121 @@ export function SettingsModal({
                   />
                 </Field>
               </section>
+
+              {/* Data & backups */}
+              <section className="space-y-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
+                  <Download className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>{t(currentLang, "exportSettings")}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleExportSettings()}
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-3 py-2 text-[11px] text-[var(--pe-text)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text-strong)]"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {t(currentLang, "exportSettings")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleImportSettings()}
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-3 py-2 text-[11px] text-[var(--pe-text)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text-strong)]"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    {t(currentLang, "importSettings")}
+                  </button>
+                </div>
+                <p className="text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                  {t(currentLang, "exportSettingsDesc")}
+                </p>
+              </section>
+
+              {/* Updates */}
+              <section className="space-y-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
+                  <RefreshCw className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>{t(currentLang, "checkUpdates")}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleCheckUpdates()}
+                    disabled={updateState === "checking"}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-3 py-1.5 text-[11px] text-[var(--pe-text)] transition hover:bg-[var(--pe-hover)] disabled:opacity-50"
+                  >
+                    {updateState === "checking" ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3 w-3" />
+                    )}
+                    {updateState === "checking"
+                      ? t(currentLang, "checkingUpdates")
+                      : t(currentLang, "checkUpdates")}
+                  </button>
+                  {updateState === "available" && foundUpdate && (
+                    <button
+                      type="button"
+                      onClick={() => void installFoundUpdate()}
+                      disabled={installing}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500/90 px-3 py-1.5 text-[11px] font-medium text-zinc-950 transition hover:bg-cyan-400 disabled:opacity-60"
+                    >
+                      {installing ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Download className="h-3 w-3" />
+                      )}
+                      {t(currentLang, "installRestart")} v{foundUpdate.version}
+                    </button>
+                  )}
+                </div>
+                {updateState === "uptodate" && (
+                  <p className="text-[11px] text-[var(--pe-emerald-strong)]">{t(currentLang, "upToDate")}</p>
+                )}
+                {updateState === "failed" && (
+                  <p className="text-[11px] text-[var(--pe-rose-strong)]">{t(currentLang, "updateFailed")}</p>
+                )}
+              </section>
+
+              {/* Danger zone */}
+              <section className="space-y-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-rose-strong)]">
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>{t(currentLang, "clearData")}</span>
+                </div>
+                <p className="text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                  {t(currentLang, "clearDataDesc")}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleClearData("history")}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-[11px] text-[var(--pe-rose-strong)] transition hover:bg-rose-500/20"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    {t(currentLang, "clearPromptHistory")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleClearData("conversations")}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-[11px] text-[var(--pe-rose-strong)] transition hover:bg-rose-500/20"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    {t(currentLang, "clearConversations")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleClearData("keys")}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-[11px] text-[var(--pe-rose-strong)] transition hover:bg-rose-500/20"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    {t(currentLang, "clearSavedKeys")}
+                  </button>
+                </div>
+                {dataMsg && (
+                  <p className="text-[11px] text-[var(--pe-emerald-strong)]">{dataMsg}</p>
+                )}
+              </section>
             </>
           )}
 
@@ -517,7 +838,7 @@ export function SettingsModal({
             <>
               {/* Local engines */}
               <section className="space-y-3">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-muted)]">
                   {t(currentLang, "localEngines")}
                 </h3>
 
@@ -533,7 +854,7 @@ export function SettingsModal({
                     <button
                       type="button"
                       onClick={pingOllama}
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 text-[11px] text-zinc-300 transition hover:bg-white/[0.08]"
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-2.5 text-[11px] text-[var(--pe-text)] transition hover:bg-[var(--pe-hover)]"
                     >
                       <RefreshCw className="h-3 w-3" />
                       {t(currentLang, "ping")}
@@ -543,7 +864,7 @@ export function SettingsModal({
                     <p
                       className={cn(
                         "mt-1.5 text-[11px]",
-                        health.ollama ? "text-emerald-400" : "text-zinc-500",
+                        health.ollama ? "text-[var(--pe-emerald-strong)]" : "text-[var(--pe-text-muted)]",
                       )}
                     >
                       {health.ollama
@@ -551,7 +872,7 @@ export function SettingsModal({
                         : t(currentLang, "offlineStartOllama")}
                     </p>
                   )}
-                  <p className="mt-1 text-[10px] text-zinc-500 leading-normal">
+                  <p className="mt-1 text-[10px] text-[var(--pe-text-muted)] leading-normal">
                     {t(currentLang, "ollamaHostHelp")}
                   </p>
                 </Field>
@@ -569,7 +890,7 @@ export function SettingsModal({
 
               {/* Cloud API keys */}
               <section className="space-y-3 pt-2">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-muted)]">
                   {t(currentLang, "cloudApiKeys")}
                 </h3>
 
@@ -604,7 +925,7 @@ export function SettingsModal({
                         onClick={() =>
                           setShow((s) => ({ ...s, [id]: !s[id] }))
                         }
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--pe-text-muted)] hover:text-[var(--pe-text)]"
                       >
                         {show[id] ? (
                           <EyeOff className="h-3.5 w-3.5" />
@@ -617,7 +938,7 @@ export function SettingsModal({
                       <button
                         type="button"
                         onClick={() => void removeKey(id)}
-                        className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-zinc-500 transition hover:text-rose-300"
+                        className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-[var(--pe-text-muted)] transition hover:text-[var(--pe-rose-strong)]"
                       >
                         <Trash2 className="h-3 w-3" />
                         {t(currentLang, "removeSavedKey")}
@@ -629,17 +950,17 @@ export function SettingsModal({
 
               {/* Custom OpenAI-compatible providers */}
               <section className="space-y-3 pt-2">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-muted)]">
                   {t(currentLang, "customProviders")}
                 </h3>
-                <p className="text-[10px] leading-relaxed text-zinc-500">
+                <p className="text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
                   {t(currentLang, "customProviderDesc")}
                 </p>
 
                 {/* Form */}
                 <div className="space-y-3 rounded-xl border border-cyan-400/20 bg-cyan-400/[0.04] p-3.5">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-medium text-cyan-300">
+                    <span className="text-[11px] font-medium text-[var(--pe-accent-strong)]">
                       {editingCustomId
                         ? t(currentLang, "saveProvider")
                         : t(currentLang, "addProvider")}
@@ -648,7 +969,7 @@ export function SettingsModal({
                       <button
                         type="button"
                         onClick={resetCustomForm}
-                        className="rounded-md px-2 py-1 text-[10px] text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+                        className="rounded-md px-2 py-1 text-[10px] text-[var(--pe-text-soft)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]"
                       >
                         {t(currentLang, "cancelButton")}
                       </button>
@@ -704,7 +1025,7 @@ export function SettingsModal({
                           customShowKey ? t(currentLang, "hideKey") : t(currentLang, "showKey")
                         }
                         onClick={() => setCustomShowKey((v) => !v)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--pe-text-muted)] hover:text-[var(--pe-text)]"
                       >
                         {customShowKey ? (
                           <EyeOff className="h-3.5 w-3.5" />
@@ -722,7 +1043,7 @@ export function SettingsModal({
                       "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium transition select-none",
                       customForm.name.trim() && customForm.baseUrl.trim()
                         ? "bg-cyan-500/90 text-zinc-950 hover:bg-cyan-400"
-                        : "bg-white/5 text-zinc-600 cursor-not-allowed",
+                        : "bg-[var(--pe-hover)] text-[var(--pe-text-faint)] cursor-not-allowed",
                     )}
                   >
                     <Plus className="h-3.5 w-3.5" />
@@ -733,44 +1054,44 @@ export function SettingsModal({
                 {/* List */}
                 <div className="space-y-2">
                   {(draft.customProviders || []).length === 0 ? (
-                    <p className="text-[11px] italic text-zinc-500">
+                    <p className="text-[11px] italic text-[var(--pe-text-muted)]">
                       {t(currentLang, "noCustomProviders")}
                     </p>
                   ) : (
                     (draft.customProviders || []).map((cp) => (
                       <div
                         key={cp.id}
-                        className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3"
+                        className="flex items-start justify-between gap-3 rounded-xl border border-[var(--pe-border)] bg-[var(--pe-input)] p-3"
                       >
                         <div className="min-w-0 flex-1 space-y-1">
                           <div className="flex items-center gap-2">
                             <Cloud className="h-3.5 w-3.5 shrink-0 text-sky-400" />
-                            <span className="text-[12px] font-medium text-zinc-200">
+                            <span className="text-[12px] font-medium text-[var(--pe-text)]">
                               {cp.name}
                             </span>
                           </div>
-                          <p className="truncate font-mono text-[10px] text-zinc-500">
+                          <p className="truncate font-mono text-[10px] text-[var(--pe-text-muted)]">
                             {cp.baseUrl}
                           </p>
-                          <div className="flex flex-wrap items-center gap-2 text-[10px] text-zinc-500">
-                            <span className="rounded-full bg-white/[0.04] px-1.5 py-0.5">
+                          <div className="flex flex-wrap items-center gap-2 text-[10px] text-[var(--pe-text-muted)]">
+                            <span className="rounded-full bg-[var(--pe-input)] px-1.5 py-0.5">
                               {cp.defaultModel || "—"}
                             </span>
                             {customKeyStatus[cp.id] ? (
                               <>
-                                <span className="text-emerald-400/80">
+                                <span className="text-[var(--pe-emerald-strong)]/80">
                                   {customKeyStatus[cp.id]}
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => void removeCustomKey(cp)}
-                                  className="text-zinc-500 transition hover:text-rose-300"
+                                  className="text-[var(--pe-text-muted)] transition hover:text-[var(--pe-rose-strong)]"
                                 >
                                   {t(currentLang, "removeSavedKey")}
                                 </button>
                               </>
                             ) : (
-                              <span className="text-zinc-600">{t(currentLang, "noKey")}</span>
+                              <span className="text-[var(--pe-text-faint)]">{t(currentLang, "noKey")}</span>
                             )}
                           </div>
                         </div>
@@ -779,7 +1100,7 @@ export function SettingsModal({
                             type="button"
                             onClick={() => startEditCustom(cp)}
                             title={t(currentLang, "editProvider")}
-                            className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/5 hover:text-cyan-300"
+                            className="rounded-lg p-1.5 text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-accent-strong)]"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
@@ -787,7 +1108,7 @@ export function SettingsModal({
                             type="button"
                             onClick={() => void removeCustomProvider(cp)}
                             title={t(currentLang, "deleteProvider")}
-                            className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-rose-500/10 hover:text-rose-300"
+                            className="rounded-lg p-1.5 text-[var(--pe-text-muted)] transition hover:bg-rose-500/10 hover:text-[var(--pe-rose-strong)]"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -804,17 +1125,17 @@ export function SettingsModal({
           {activeTab === "customButtons" && (
             <section className="space-y-4">
               <div>
-                <h3 className="text-[12px] font-semibold text-zinc-200">
+                <h3 className="text-[12px] font-semibold text-[var(--pe-text)]">
                   {t(currentLang, "customButtonsTitle")}
                 </h3>
-                <p className="text-[11px] leading-relaxed text-zinc-500 mt-0.5">
+                <p className="text-[11px] leading-relaxed text-[var(--pe-text-muted)] mt-0.5">
                   {t(currentLang, "customButtonsDesc")}
                 </p>
               </div>
 
               {/* Form to add new button */}
               <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-3.5 space-y-3">
-                <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-300">
+                <div className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--pe-amber-strong)]">
                   <Sparkles className="h-3.5 w-3.5" />
                   <span>{t(currentLang, "addCustomButton")}</span>
                 </div>
@@ -840,7 +1161,7 @@ export function SettingsModal({
                     "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium transition select-none",
                     newLabel.trim() && newPrompt.trim()
                       ? "bg-amber-400 text-zinc-950 hover:bg-amber-300"
-                      : "bg-white/5 text-zinc-600 cursor-not-allowed",
+                      : "bg-[var(--pe-hover)] text-[var(--pe-text-faint)] cursor-not-allowed",
                   )}
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -850,11 +1171,11 @@ export function SettingsModal({
 
               {/* Existing Custom Buttons List */}
               <div className="space-y-2">
-                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-muted)]">
                   {t(currentLang, "activeButtons")} ({(draft.customActions || []).length})
                 </h4>
                 {(draft.customActions || []).length === 0 ? (
-                  <p className="text-[11px] text-zinc-500 italic">
+                  <p className="text-[11px] text-[var(--pe-text-muted)] italic">
                     {t(currentLang, "noCustomButtons")}
                   </p>
                 ) : (
@@ -862,22 +1183,22 @@ export function SettingsModal({
                     {draft.customActions.map((btn) => (
                       <div
                         key={btn.id}
-                        className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3"
+                        className="flex items-start justify-between gap-3 rounded-xl border border-[var(--pe-border)] bg-[var(--pe-input)] p-3"
                       >
                         <div className="space-y-1 min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                            <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-medium text-[var(--pe-amber-strong)]">
                               {btn.label}
                             </span>
                           </div>
-                          <p className="text-[11px] text-zinc-400 font-mono leading-relaxed line-clamp-2">
+                          <p className="text-[11px] text-[var(--pe-text-soft)] font-mono leading-relaxed line-clamp-2">
                             {btn.prompt}
                           </p>
                         </div>
                         <button
                           type="button"
                           onClick={() => handleDeleteCustomButton(btn.id)}
-                          className="rounded-lg p-1.5 text-zinc-500 hover:bg-rose-500/10 hover:text-rose-300 transition"
+                          className="rounded-lg p-1.5 text-[var(--pe-text-muted)] hover:bg-rose-500/10 hover:text-[var(--pe-rose-strong)] transition"
                           title={t(currentLang, "deleteButton")}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -892,14 +1213,14 @@ export function SettingsModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-white/[0.06] px-5 py-3">
-          <div className="flex items-center gap-2 text-[11px] text-zinc-500">
-            <span className="font-medium text-zinc-300">SpotAI v{APP_VERSION}</span>
-            <span className="text-zinc-700">•</span>
+        <div className="flex items-center justify-between border-t border-[var(--pe-border-soft)] px-5 py-3">
+          <div className="flex items-center gap-2 text-[11px] text-[var(--pe-text-muted)]">
+            <span className="font-medium text-[var(--pe-text)]">SpotAI v{APP_VERSION}</span>
+            <span className="text-[var(--pe-text-faint)]">•</span>
             <button
               type="button"
               onClick={() => void openExternalUrl("https://github.com/jaimitus/SpotAI")}
-              className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 hover:underline transition"
+              className="inline-flex items-center gap-1 text-cyan-400 hover:text-[var(--pe-accent-strong)] hover:underline transition"
             >
               <ExternalLink className="h-3.5 w-3.5" />
               {t(currentLang, "githubRepo")}
@@ -908,14 +1229,14 @@ export function SettingsModal({
 
           <div className="flex items-center gap-2">
             {saveError && (
-              <p className="max-w-64 text-[10px] text-rose-300">
+              <p className="max-w-64 text-[10px] text-[var(--pe-rose-strong)]">
                 {saveError}
               </p>
             )}
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg px-3 py-1.5 text-[12px] text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200"
+              className="rounded-lg px-3 py-1.5 text-[12px] text-[var(--pe-text-soft)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]"
             >
               {t(currentLang, "cancelButton")}
             </button>
@@ -948,14 +1269,14 @@ function Field({
 }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-[11px] font-medium text-zinc-400">{label}</span>
+      <span className="text-[11px] font-medium text-[var(--pe-text-soft)]">{label}</span>
       {children}
     </label>
   );
 }
 
 const inputCls = cn(
-  "w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2",
-  "text-[12px] text-zinc-200 placeholder:text-zinc-600",
+  "w-full rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-3 py-2",
+  "text-[12px] text-[var(--pe-text)] placeholder:text-[var(--pe-text-faint)]",
   "outline-none transition focus:border-cyan-400/40 focus:ring-1 focus:ring-cyan-400/20",
 );

@@ -5,7 +5,7 @@ import type { Language } from "../types";
 describe("prompts", () => {
   it("provides a non-empty template for every chip in every language", () => {
     for (const chip of ACTION_CHIPS) {
-      for (const lang of ["en", "es", "de"] as const) {
+      for (const lang of ["en", "es", "de", "pt", "fr"] as const) {
         const prompt = buildActionPrompt(chip.id, undefined, lang);
         expect(
           prompt.trim().length,
@@ -28,7 +28,7 @@ describe("prompts", () => {
   });
 
   it("falls back to English templates for unknown languages", () => {
-    const fallback = buildActionPrompt("summarize", undefined, "fr" as Language);
+    const fallback = buildActionPrompt("summarize", undefined, "it" as Language);
     const english = buildActionPrompt("summarize", undefined, "en");
     expect(fallback).toBe(english);
   });

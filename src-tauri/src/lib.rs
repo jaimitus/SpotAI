@@ -34,6 +34,7 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -76,6 +77,8 @@ pub fn run() {
             commands::show_window,
             commands::check_ollama_health,
             commands::open_external_url,
+            commands::export_settings_to_file,
+            commands::import_settings_from_file,
         ])
         .setup(|app| {
             let shortcut_status = app.state::<commands::ShortcutRegistration>();

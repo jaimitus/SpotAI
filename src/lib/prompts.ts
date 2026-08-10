@@ -91,6 +91,36 @@ const TEMPLATES: Record<Language, Record<ActionChipId, string>> = {
     comment:
       "Fügen Sie klaren, nützlichen Code-Kommentaren auf Deutsch hinzu. Code-Verhalten beibehalten und vollständig ausgeben.",
   },
+  pt: {
+    explain:
+      "Explica detalhadamente o que se segue em português. Descreve o que faz, como funciona e possíveis problemas. Usa linguagem técnica clara e concisa.",
+    fix: "Identifica o erro ou falha no que se segue e fornece a versão corrigida. Explica brevemente a causa raiz em português e mostra o código arranjado.",
+    refactor:
+      "Refatora o que se segue para melhorar legibilidade, manutenção e desempenho em português. Conserva o comportamento original e explica as mudanças-chave em português.",
+    summarize:
+      "Resume o que se segue em pontos-chave claros em português. Captura apenas as ideias essenciais de forma concisa.",
+    translate:
+      "Traduz o que se segue para um português claro, natural e fluido.",
+    improve:
+      "Melhora a qualidade de escrita do que se segue em português. Corrige gramática e ortografia e melhora a fluidez mantendo o tom original.",
+    comment:
+      "Adiciona comentários claros e úteis em português ao seguinte código. Mantém o comportamento original e devolve o código comentado.",
+  },
+  fr: {
+    explain:
+      "Expliquez ce qui suit en détail en français. Décrivez ce que cela fait, comment cela fonctionne et les pièges éventuels. Utilisez un langage technique clair et concis.",
+    fix: "Identifiez le bug ou l'erreur dans ce qui suit et fournissez la version corrigée. Expliquez brièvement la cause en français, puis montrez le code corrigé.",
+    refactor:
+      "Refactorisez ce qui suit pour la lisibilité, la maintenabilité et la performance. Conservez le comportement et expliquez les changements clés en français.",
+    summarize:
+      "Résumez ce qui suit en points clés clairs en français. Ne retenez que les idées essentielles, sans remplissage.",
+    translate:
+      "Traduisez ce qui suit en français clair, naturel et fluide.",
+    improve:
+      "Améliorez la qualité rédactionnelle de ce qui suit en français. Corrigez la grammaire et resserrez la formulation en gardant le ton d'origine.",
+    comment:
+      "Ajoutez des commentaires et docstrings clairs et utiles en français au code suivant. Conservez le comportement et renvoyez le code commenté.",
+  },
 };
 
 export function buildActionPrompt(
@@ -118,8 +148,8 @@ export const BUILTIN_CLOUD_MODELS = [
   { id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai" },
   { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B", provider: "groq" },
   { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B Instant", provider: "groq" },
-  { id: "deepseek-chat", name: "DeepSeek Chat", provider: "deepseek" },
   { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B", provider: "groq" },
+  { id: "deepseek-chat", name: "DeepSeek Chat", provider: "deepseek" },
   { id: "deepseek-reasoner", name: "DeepSeek Reasoner", provider: "deepseek" },
 ] as const;
 

@@ -30,6 +30,8 @@ export interface PromptRequest {
   temperature?: number | null;
   maxTokens?: number | null;
   history?: ChatMessage[] | null;
+  /** Optional pasted screenshot as a data URL ("data:<mime>;base64,..."). */
+  imageDataUrl?: string | null;
   requestId: string;
 }
 
@@ -55,7 +57,9 @@ export interface ApiKeyStatus {
   deepseek?: string | null;
 }
 
-export type Language = "en" | "es" | "de";
+export type Language = "en" | "es" | "de" | "pt" | "fr";
+
+export type ThemePreference = "dark" | "light" | "system";
 
 export interface CustomAction {
   id: string;
@@ -73,6 +77,7 @@ export interface CustomProvider {
 
 export interface AppSettings {
   language: Language;
+  theme?: ThemePreference;
   ollamaHost: string;
   lmstudioHost: string;
   defaultProvider: string;
@@ -113,5 +118,20 @@ export interface ActionChip {
 }
 
 export type StreamStatus = "idle" | "streaming" | "done" | "error";
+
+export interface Conversation {
+  id: string;
+  title: string;
+  /** True once the user has manually renamed the chat; auto-titles stop updating. */
+  renamed?: boolean;
+  createdAt: number;
+  updatedAt: number;
+  messages: ChatMessage[];
+}
+
+export interface CapturedImage {
+  mime: string;
+  dataUrl: string;
+}
 
 export type ContextKind = "empty" | "text" | "code" | "error" | "json" | "url";

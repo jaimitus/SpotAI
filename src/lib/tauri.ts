@@ -122,6 +122,7 @@ export async function sendPromptStream(request: PromptRequest): Promise<void> {
     temperature: request.temperature ?? null,
     maxTokens: request.maxTokens ?? null,
     history: request.history ?? null,
+    imageDataUrl: request.imageDataUrl ?? null,
     requestId: request.requestId ?? null,
   });
 }
@@ -171,6 +172,7 @@ export async function getCustomApiKeyStatus(
 export function loadSettings(): AppSettings {
   const defaults: AppSettings = {
     language: "en",
+    theme: "dark",
     ollamaHost: "http://127.0.0.1:11434",
     lmstudioHost: "http://127.0.0.1:1234",
     defaultProvider: "ollama",
@@ -228,4 +230,30 @@ export async function openExternalUrl(url: string): Promise<void> {
     }
   }
   window.open(url, "_blank", "noreferrer");
+}
+
+export async function exportSettingsToFile(path: string, content: string): Promise<void> {
+  await invoke("export_settings_to_file", { path, content });
+}
+
+export async function importSettingsFromFile(path: string): Promise<string> {
+  return invoke<string>("import_settings_from_file", { path });
+}
+
+export async function pickSavePath(defaultName: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  return save({ defaultPath: defaultName, filters: [{ name: "JSON", extensions: ["json"] }] });
+}
+
+export async function pickOpenPath(): Promise<string | null> {
+  if (!isTauri()) return null;
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  return open({ multiple: false, filters: [{ name: "JSON", extensions: ["json"] }] });
+}
+
+export async function confirmDialog(message: string): Promise<boolean> {
+  if (!isTauri()) return window.confirm(message);
+  const { confirm } = await import("@tauri-apps/plugin-dialog");
+  return confirm(message, { kind: "warning" });
 }

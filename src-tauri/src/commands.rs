@@ -267,6 +267,7 @@ pub async fn send_prompt_stream(
     temperature: Option<f32>,
     max_tokens: Option<u32>,
     history: Option<Vec<ChatMessage>>,
+    image_data_url: Option<String>,
     request_id: Option<String>,
 ) -> Result<(), String> {
     let resolved_key = match api_key.map(|key| key.trim().to_owned()) {
@@ -332,6 +333,9 @@ pub async fn send_prompt_stream(
         temperature,
         max_tokens,
         history: history.unwrap_or_default(),
+        image_data_url: image_data_url
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty()),
         request_id: resolved_request_id,
     };
 
@@ -460,6 +464,22 @@ pub async fn check_ollama_health(
             ollama_version: None,
         }),
     }
+}
+
+/// Writes the settings JSON to an absolute path chosen by the user through the
+/// save dialog. The content comes from the frontend (serialized settings).
+#[tauri::command]
+pub fn export_settings_to_file(path: String, content: String) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("A destination path is required".into());
+    }
+    std::fs::write(&path, content).map_err(|error| error.to_string())
+}
+
+/// Reads a settings JSON file picked by the user through the open dialog.
+#[tauri::command]
+pub fn import_settings_from_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(path).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

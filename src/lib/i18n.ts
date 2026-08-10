@@ -21,7 +21,8 @@ export const translations = {
     dismiss: "Dismiss",
     refresh: "Refresh",
     placeholderContext: "Ask anything about the captured text or choose an action below",
-    placeholderDefault: "Ask anything... Explain code, refactor, or summarize",
+    placeholderDefault:
+      "Ask anything... Explain code, refactor, or summarize  ·  type / for commands",
     sendPrompt: "Send prompt",
     streaming: "Streaming",
     error: "Error",
@@ -70,6 +71,11 @@ export const translations = {
 
     languageLabel: "Interface Language",
     languageDesc: "Select application display language (English, Español, Deutsch)",
+    themeLabel: "Appearance",
+    themeDark: "Dark",
+    themeLight: "Light",
+    themeSystem: "System",
+    themeDesc: "Choose dark, light, or follow your system's color scheme",
     defaultProviderLabel: "Default Provider",
     defaultModelLabel: "Default Model",
     globalHotkeyLabel: "Global Hotkey",
@@ -152,6 +158,44 @@ export const translations = {
     cancelButton: "Cancel",
     resetDefaults: "Reset to Default Buttons",
     customButtonAdded: "Custom button added successfully!",
+
+    // Chats
+    chats: "Chats",
+    noChats: "No conversations yet",
+    searchChats: "Search chats",
+    renameChat: "Rename",
+    deleteChat: "Delete",
+    deleteChatConfirm: "Delete this conversation?",
+
+    // Slash commands
+    slashHint: "Type / to run a command",
+    noCommands: "No matching commands",
+
+    // Image context
+    imageContext: "Image context",
+    removeImage: "Remove image",
+    pasteImageHint: "Paste a screenshot (Ctrl+V) to ask a vision model about it",
+    imageUnsupported:
+      "This provider does not support images. Switch to a vision-capable model.",
+
+    // Settings data & updates
+    exportSettings: "Export settings",
+    exportSettingsDesc:
+      "Save your settings (language, providers, custom buttons) to a JSON file",
+    importSettings: "Import settings",
+    importSettingsDesc: "Load settings from a JSON file",
+    settingsExported: "Settings exported",
+    settingsImported: "Settings imported",
+    checkUpdates: "Check for updates",
+    checkingUpdates: "Checking...",
+    upToDate: "You are up to date",
+    clearData: "Danger zone",
+    clearDataDesc: "Permanently delete local data. This cannot be undone.",
+    clearPromptHistory: "Clear prompt history",
+    clearConversations: "Clear conversations",
+    clearSavedKeys: "Remove all saved API keys",
+    confirmClear: "Are you sure? This cannot be undone.",
+    dataCleared: "Data cleared",
   },
   es: {
     appTitle: "SpotAI",
@@ -173,7 +217,8 @@ export const translations = {
     dismiss: "Descartar",
     refresh: "Actualizar",
     placeholderContext: "Pregunta sobre el texto capturado o elige una acción abajo",
-    placeholderDefault: "Pregunta cualquier cosa... Explicar código, refactorizar o resumir",
+    placeholderDefault:
+      "Pregunta cualquier cosa... Explicar código, refactorizar o resumir  ·  escribe / para comandos",
     sendPrompt: "Enviar pregunta",
     streaming: "Generando",
     error: "Error",
@@ -222,6 +267,11 @@ export const translations = {
 
     languageLabel: "Idioma de la interfaz",
     languageDesc: "Selecciona el idioma de la aplicación (Inglés, Español, Alemán)",
+    themeLabel: "Apariencia",
+    themeDark: "Oscuro",
+    themeLight: "Claro",
+    themeSystem: "Sistema",
+    themeDesc: "Elige oscuro, claro o sigue el esquema de color del sistema",
     defaultProviderLabel: "Proveedor por defecto",
     defaultModelLabel: "Modelo por defecto",
     globalHotkeyLabel: "Atajo global",
@@ -304,6 +354,43 @@ export const translations = {
     cancelButton: "Cancelar",
     resetDefaults: "Restablecer Botones por Defecto",
     customButtonAdded: "¡Botón personalizado creado!",
+
+    // Chats
+    chats: "Conversaciones",
+    noChats: "Aún no hay conversaciones",
+    searchChats: "Buscar conversaciones",
+    renameChat: "Renombrar",
+    deleteChat: "Eliminar",
+    deleteChatConfirm: "¿Eliminar esta conversación?",
+
+    // Slash commands
+    slashHint: "Escribe / para ejecutar un comando",
+    noCommands: "No hay comandos que coincidan",
+
+    // Image context
+    imageContext: "Contexto de imagen",
+    removeImage: "Quitar imagen",
+    pasteImageHint: "Pega una captura (Ctrl+V) para preguntar a un modelo de visión",
+    imageUnsupported: "Este proveedor no admite imágenes. Cambia a un modelo con visión.",
+
+    // Settings data & updates
+    exportSettings: "Exportar ajustes",
+    exportSettingsDesc:
+      "Guarda tus ajustes (idioma, proveedores, botones) en un archivo JSON",
+    importSettings: "Importar ajustes",
+    importSettingsDesc: "Cargar ajustes desde un archivo JSON",
+    settingsExported: "Ajustes exportados",
+    settingsImported: "Ajustes importados",
+    checkUpdates: "Buscar actualizaciones",
+    checkingUpdates: "Comprobando...",
+    upToDate: "Estás al día",
+    clearData: "Zona de riesgo",
+    clearDataDesc: "Borra permanentemente datos locales. Esta acción no se puede deshacer.",
+    clearPromptHistory: "Vaciar historial de prompts",
+    clearConversations: "Vaciar conversaciones",
+    clearSavedKeys: "Eliminar todas las claves API guardadas",
+    confirmClear: "¿Seguro? Esta acción no se puede deshacer.",
+    dataCleared: "Datos borrados",
   },
   de: {
     appTitle: "SpotAI",
@@ -325,7 +412,8 @@ export const translations = {
     dismiss: "Verwerfen",
     refresh: "Aktualisieren",
     placeholderContext: "Fragen Sie zum erfassten Text oder wählen Sie eine Aktion unten",
-    placeholderDefault: "Fragen Sie etwas... Code erklären, refaktorisieren oder zusammenfassen",
+    placeholderDefault:
+      "Fragen Sie etwas... Code erklären, refaktorisieren oder zusammenfassen  ·  / für Befehle",
     sendPrompt: "Anfrage senden",
     streaming: "Antwortet",
     error: "Fehler",
@@ -374,6 +462,11 @@ export const translations = {
 
     languageLabel: "Sprache der Benutzeroberfläche",
     languageDesc: "Wählen Sie die Anzeigesprache (Englisch, Spanisch, Deutsch)",
+    themeLabel: "Erscheinungsbild",
+    themeDark: "Dunkel",
+    themeLight: "Hell",
+    themeSystem: "System",
+    themeDesc: "Wählen Sie dunkel, hell oder das Farbschema des Systems",
     defaultProviderLabel: "Standard-Anbieter",
     defaultModelLabel: "Standard-Modell",
     globalHotkeyLabel: "Globales Tastenkürzel",
@@ -456,6 +549,467 @@ export const translations = {
     cancelButton: "Abbrechen",
     resetDefaults: "Auf Standard-Buttons zurücksetzen",
     customButtonAdded: "Eigener Button erstellt!",
+
+    // Chats
+    chats: "Unterhaltungen",
+    noChats: "Noch keine Unterhaltungen",
+    searchChats: "Unterhaltungen suchen",
+    renameChat: "Umbenennen",
+    deleteChat: "Löschen",
+    deleteChatConfirm: "Diese Unterhaltung löschen?",
+
+    // Slash commands
+    slashHint: "Geben Sie / ein, um einen Befehl auszuführen",
+    noCommands: "Keine passenden Befehle",
+
+    // Image context
+    imageContext: "Bildkontext",
+    removeImage: "Bild entfernen",
+    pasteImageHint:
+      "Screenshot einfügen (Strg+V), um ein Vision-Modell zu befragen",
+    imageUnsupported:
+      "Dieser Anbieter unterstützt keine Bilder. Wechseln Sie zu einem Vision-Modell.",
+
+    // Settings data & updates
+    exportSettings: "Einstellungen exportieren",
+    exportSettingsDesc:
+      "Einstellungen (Sprache, Anbieter, Buttons) als JSON-Datei speichern",
+    importSettings: "Einstellungen importieren",
+    importSettingsDesc: "Einstellungen aus einer JSON-Datei laden",
+    settingsExported: "Einstellungen exportiert",
+    settingsImported: "Einstellungen importiert",
+    checkUpdates: "Nach Updates suchen",
+    checkingUpdates: "Prüfe...",
+    upToDate: "Sie sind auf dem neuesten Stand",
+    clearData: "Gefahrenzone",
+    clearDataDesc:
+      "Lokale Daten endgültig löschen. Diese Aktion kann nicht rückgängig gemacht werden.",
+    clearPromptHistory: "Prompt-Verlauf leeren",
+    clearConversations: "Unterhaltungen leeren",
+    clearSavedKeys: "Alle gespeicherten API-Schlüssel entfernen",
+    confirmClear: "Sind Sie sicher? Diese Aktion kann nicht rückgängig gemacht werden.",
+    dataCleared: "Daten gelöscht",
+  },
+  pt: {
+    appTitle: "SpotAI",
+    starting: "A iniciar...",
+    shortcutUnavailable: "Atalho global indisponível",
+    aiSpotlight: "Spotlight de IA",
+    settingsTitle: "Definições (Ctrl+,)",
+    hideTitle: "Ocultar (Esc)",
+    resizeWindow: "Redimensionar janela",
+    capturedContext: "Contexto capturado",
+    truncated: "truncado",
+    chars: "caracteres",
+    contextKind_empty: "",
+    contextKind_text: "texto",
+    contextKind_code: "código",
+    contextKind_error: "erro",
+    contextKind_json: "JSON",
+    contextKind_url: "URL",
+    dismiss: "Dispensar",
+    refresh: "Atualizar",
+    placeholderContext:
+      "Pergunte sobre o texto capturado ou escolha uma ação abaixo",
+    placeholderDefault:
+      "Pergunte qualquer coisa... Explicar código, refatorar ou resumir  ·  escreva / para comandos",
+    sendPrompt: "Enviar pergunta",
+    streaming: "A gerar",
+    error: "Erro",
+    done: "Concluído",
+    response: "Resposta",
+    stop: "Parar",
+    clear: "Limpar",
+    copy: "Copiar",
+    copied: "Copiado!",
+    autoInsert: "Auto-Inserir",
+    autoInsertFailed: "A auto-inserção falhou",
+    newChat: "Nova conversa",
+    waitingToken: "A aguardar o primeiro token...",
+    footerRun: "executar",
+    footerNewline: "nova linha",
+    footerHide: "ocultar",
+    footerInsert: "inserir",
+    footerHistory: "histórico",
+    historyOlder: "Pergunta anterior",
+    historyNewer: "Pergunta seguinte",
+    local: "Local",
+    cloud: "Nuvem",
+
+    // Action Chips
+    explain: "Explicar",
+    refactor: "Refatorar",
+    summarize: "Resumir",
+    fixBugs: "Corrigir erros",
+    translate: "Traduzir",
+    improve: "Melhorar",
+    comment: "Adicionar comentários",
+
+    // Settings Modal
+    startupLabel: "Iniciar com o Windows",
+    startupDesc: "Abre o SpotAI automaticamente ao iniciar sessão",
+    updateAvailable: "Atualização v{0} disponível",
+    installRestart: "Instalar e reiniciar",
+    updating: "A instalar...",
+    updateFailed: "Falha na atualização. Tente mais tarde.",
+    settingsHeader: "Definições do SpotAI",
+    settingsSubtitle:
+      "Configure modelos de IA locais/nuvem, botões personalizados e idioma",
+    tabGeneral: "Geral",
+    tabProviders: "Fornecedores IA",
+    tabCustomButtons: "Botões Personalizados",
+    tabShortcuts: "Atalhos",
+
+    languageLabel: "Idioma da interface",
+    languageDesc: "Selecione o idioma da aplicação (Inglês, Espanhol, Alemão)",
+    themeLabel: "Aparência",
+    themeDark: "Escuro",
+    themeLight: "Claro",
+    themeSystem: "Sistema",
+    themeDesc: "Escolha escuro, claro ou siga o esquema de cores do sistema",
+    defaultProviderLabel: "Fornecedor predefinido",
+    defaultModelLabel: "Modelo predefinido",
+    globalHotkeyLabel: "Atalho global",
+    shortcutSyntaxHint:
+      "Sintaxe Tauri, ex. Alt+Espaço, Ctrl+Shift+Espaço, Ctrl+Alt+K",
+    escHidesWindow: "Esc oculta a janela",
+    runsInTray: "Corre na bandeja do sistema",
+    systemPromptLabel: "Prompt de sistema (opcional)",
+    systemPromptHelp:
+      "Instruções personalizadas aplicadas a cada pedido. Deixe vazio para o predefinido.",
+    generationLimits: "Geração e limites",
+    temperature: "Temperatura",
+    maxTokens: "Máx. tokens",
+    localEngines: "Motores locais",
+    cloudApiKeys: "Chaves API da nuvem (encriptadas)",
+    lmStudioHost: "Anfitrião do LM Studio",
+    ping: "Testar",
+    online: "Online",
+    offlineStartOllama:
+      "Sem ligação. Inicie o Ollama para usar modelos locais.",
+    savedSecurely: "Guardada com segurança",
+    enterApiKey: "Introduza a chave API",
+    showKey: "Mostrar chave",
+    hideKey: "Ocultar chave",
+    removeSavedKey: "Remover chave guardada",
+    activeButtons: "Botões ativos",
+    noCustomButtons:
+      "Ainda não há botões personalizados. Crie o primeiro acima!",
+    deleteButton: "Eliminar botão",
+    githubRepo: "Repositório no GitHub",
+
+    // Response Panel
+    pasteIntoFocusedApp:
+      "Colar a resposta na aplicação anteriormente em foco",
+    remainsOnClipboard: "A resposta continua na área de transferência.",
+    copyCodeBlock: "Copiar bloco de código",
+
+    // Provider Badge
+    selectModel: "Escolher modelo",
+    searchModels: "Procurar modelos",
+    refreshModels: "Atualizar modelos",
+    noMatchingModels: "Sem modelos correspondentes",
+    noLocalModels: "Sem modelos locais. O Ollama está em execução?",
+    configureInSettings: "Configure nas Definições",
+    ollamaOnline: "Ollama online",
+    ollamaOffline: "Ollama offline",
+
+    // Onboarding
+    onboardingTitle: "Vamos começar!",
+    onboardingStep1:
+      "Inicie o Ollama ou o LM Studio para modelos locais, ou adicione uma chave API na nuvem nas Definições.",
+    onboardingStep2: "Escolha um fornecedor e modelo na barra superior.",
+    onboardingStep3:
+      "Selecione texto, abra o SpotAI com {0} e pergunte sobre ele.",
+    openSettings: "Abrir Definições",
+
+    ollamaHostLabel: "Servidor Ollama (host local ou IP de rede)",
+    ollamaHostHelp:
+      "O predefinido é http://127.0.0.1:11434. Para servidor de rede use ex. http://192.168.1.50:11434",
+    apiKeysHeader:
+      "Chaves API (Guardadas com segurança com encriptação DPAPI)",
+
+    // Custom OpenAI-compatible providers
+    customProviders: "Fornecedores personalizados (compatíveis com OpenAI)",
+    customProviderDesc:
+      "Ligue qualquer endpoint compatível com OpenAI (OpenRouter, Mistral, Together, vLLM…). Cole o URL base completo, ex. https://openrouter.ai/api/v1",
+    providerName: "Nome",
+    baseUrlLabel: "URL base (compatível com OpenAI)",
+    customDefaultModelLabel: "Modelo predefinido (opcional)",
+    providerApiKey: "Chave API (opcional)",
+    addProvider: "Adicionar fornecedor",
+    saveProvider: "Guardar fornecedor",
+    editProvider: "Editar fornecedor",
+    deleteProvider: "Eliminar fornecedor",
+    noCustomProviders:
+      "Ainda não há fornecedores personalizados. Adicione um acima.",
+    noKey: "Sem chave API",
+    baseUrlError: "O URL base deve começar com http:// ou https://",
+
+    // Custom Buttons Editor
+    customButtonsTitle: "Botões de Prompts Personalizados",
+    customButtonsDesc:
+      "Crie botões de ação acessíveis com os seus modelos de prompt.",
+    addCustomButton: "Adicionar Botão Personalizado",
+    buttonLabelPlaceholder: "Nome do Botão (ex. Otimizar SQL)",
+    buttonPromptPlaceholder:
+      "Modelo de Prompt (ex. Otimize esta consulta para máxima velocidade e adicione índices:)",
+    editButton: "Editar",
+    saveButton: "Guardar Definições",
+    cancelButton: "Cancelar",
+    resetDefaults: "Restaurar Botões Predefinidos",
+    customButtonAdded: "Botão personalizado criado!",
+
+    // Chats
+    chats: "Conversas",
+    noChats: "Ainda não há conversas",
+    searchChats: "Procurar conversas",
+    renameChat: "Renomear",
+    deleteChat: "Eliminar",
+    deleteChatConfirm: "Eliminar esta conversa?",
+
+    // Slash commands
+    slashHint: "Escreva / para executar um comando",
+    noCommands: "Sem comandos correspondentes",
+
+    // Image context
+    imageContext: "Contexto de imagem",
+    removeImage: "Remover imagem",
+    pasteImageHint:
+      "Cole um screenshot (Ctrl+V) para perguntar a um modelo de visão",
+    imageUnsupported:
+      "Este fornecedor não suporta imagens. Mude para um modelo com visão.",
+
+    // Settings data & updates
+    exportSettings: "Exportar definições",
+    exportSettingsDesc:
+      "Guarde as suas definições (idioma, fornecedores, botões) num ficheiro JSON",
+    importSettings: "Importar definições",
+    importSettingsDesc: "Carregar definições de um ficheiro JSON",
+    settingsExported: "Definições exportadas",
+    settingsImported: "Definições importadas",
+    checkUpdates: "Procurar atualizações",
+    checkingUpdates: "A verificar...",
+    upToDate: "Está atualizado",
+    clearData: "Zona de perigo",
+    clearDataDesc:
+      "Elimine permanentemente dados locais. Esta ação não pode ser anulada.",
+    clearPromptHistory: "Limpar histórico de prompts",
+    clearConversations: "Limpar conversas",
+    clearSavedKeys: "Remover todas as chaves API guardadas",
+    confirmClear: "Tem a certeza? Esta ação não pode ser anulada.",
+    dataCleared: "Dados limpos",
+  },
+  fr: {
+    appTitle: "SpotAI",
+    starting: "Démarrage...",
+    shortcutUnavailable: "Raccourci global indisponible",
+    aiSpotlight: "Spotlight IA",
+    settingsTitle: "Paramètres (Ctrl+,)",
+    hideTitle: "Masquer (Échap)",
+    resizeWindow: "Redimensionner la fenêtre",
+    capturedContext: "Contexte capturé",
+    truncated: "tronqué",
+    chars: "caractères",
+    contextKind_empty: "",
+    contextKind_text: "texte",
+    contextKind_code: "code",
+    contextKind_error: "erreur",
+    contextKind_json: "JSON",
+    contextKind_url: "URL",
+    dismiss: "Ignorer",
+    refresh: "Actualiser",
+    placeholderContext:
+      "Posez une question sur le texte capturé ou choisissez une action ci-dessous",
+    placeholderDefault:
+      "Demandez n'importe quoi... Expliquer du code, refactoriser ou résumer  ·  tapez / pour les commandes",
+    sendPrompt: "Envoyer la question",
+    streaming: "Génération",
+    error: "Erreur",
+    done: "Terminé",
+    response: "Réponse",
+    stop: "Arrêter",
+    clear: "Effacer",
+    copy: "Copier",
+    copied: "Copié !",
+    autoInsert: "Insertion auto",
+    autoInsertFailed: "Échec de l'insertion automatique",
+    newChat: "Nouvelle conversation",
+    waitingToken: "En attente du premier token...",
+    footerRun: "exécuter",
+    footerNewline: "nouvelle ligne",
+    footerHide: "masquer",
+    footerInsert: "insérer",
+    footerHistory: "historique",
+    historyOlder: "Question précédente",
+    historyNewer: "Question suivante",
+    local: "Local",
+    cloud: "Cloud",
+
+    // Action Chips
+    explain: "Expliquer",
+    refactor: "Refactoriser",
+    summarize: "Résumer",
+    fixBugs: "Corriger les bugs",
+    translate: "Traduire",
+    improve: "Améliorer",
+    comment: "Commenter",
+
+    // Settings Modal
+    startupLabel: "Démarrer avec Windows",
+    startupDesc: "Lance SpotAI automatiquement à la connexion",
+    updateAvailable: "Mise à jour v{0} disponible",
+    installRestart: "Installer et redémarrer",
+    updating: "Installation...",
+    updateFailed: "Échec de la mise à jour. Réessayez plus tard.",
+    settingsHeader: "Paramètres de SpotAI",
+    settingsSubtitle:
+      "Configurez les modèles IA locaux/cloud, les boutons personnalisés et la langue",
+    tabGeneral: "Général",
+    tabProviders: "Fournisseurs IA",
+    tabCustomButtons: "Boutons personnalisés",
+    tabShortcuts: "Raccourcis",
+
+    languageLabel: "Langue de l'interface",
+    languageDesc:
+      "Sélectionnez la langue de l'application (Anglais, Espagnol, Allemand)",
+    themeLabel: "Apparence",
+    themeDark: "Sombre",
+    themeLight: "Clair",
+    themeSystem: "Système",
+    themeDesc: "Choisissez sombre, clair ou suivez le thème du système",
+    defaultProviderLabel: "Fournisseur par défaut",
+    defaultModelLabel: "Modèle par défaut",
+    globalHotkeyLabel: "Raccourci global",
+    shortcutSyntaxHint:
+      "Syntaxe Tauri, ex. Alt+Espace, Ctrl+Maj+Espace, Ctrl+Alt+K",
+    escHidesWindow: "Échap masque la fenêtre",
+    runsInTray: "S'exécute dans la barre d'état système",
+    systemPromptLabel: "Prompt système (optionnel)",
+    systemPromptHelp:
+      "Instructions personnalisées appliquées à chaque requête. Laissez vide pour la valeur par défaut.",
+    generationLimits: "Génération et limites",
+    temperature: "Température",
+    maxTokens: "Max. tokens",
+    localEngines: "Moteurs locaux",
+    cloudApiKeys: "Clés API cloud (chiffrées)",
+    lmStudioHost: "Hôte LM Studio",
+    ping: "Tester",
+    online: "En ligne",
+    offlineStartOllama:
+      "Hors ligne. Démarrez Ollama pour utiliser les modèles locaux.",
+    savedSecurely: "Enregistrée en toute sécurité",
+    enterApiKey: "Saisissez la clé API",
+    showKey: "Afficher la clé",
+    hideKey: "Masquer la clé",
+    removeSavedKey: "Supprimer la clé enregistrée",
+    activeButtons: "Boutons actifs",
+    noCustomButtons:
+      "Aucun bouton personnalisé pour l'instant. Créez le premier ci-dessus !",
+    deleteButton: "Supprimer le bouton",
+    githubRepo: "Dépôt GitHub",
+
+    // Response Panel
+    pasteIntoFocusedApp:
+      "Collez la réponse dans l'application précédemment focalisée",
+    remainsOnClipboard: "La réponse reste dans le presse-papiers.",
+    copyCodeBlock: "Copier le bloc de code",
+
+    // Provider Badge
+    selectModel: "Choisir un modèle",
+    searchModels: "Rechercher des modèles",
+    refreshModels: "Actualiser les modèles",
+    noMatchingModels: "Aucun modèle correspondant",
+    noLocalModels: "Aucun modèle local. Ollama est-il en cours d'exécution ?",
+    configureInSettings: "Configurer dans les Paramètres",
+    ollamaOnline: "Ollama en ligne",
+    ollamaOffline: "Ollama hors ligne",
+
+    // Onboarding
+    onboardingTitle: "Commençons !",
+    onboardingStep1:
+      "Démarrez Ollama ou LM Studio pour les modèles locaux, ou ajoutez une clé API cloud dans les Paramètres.",
+    onboardingStep2: "Choisissez un fournisseur et un modèle dans la barre supérieure.",
+    onboardingStep3:
+      "Sélectionnez du texte, ouvrez SpotAI avec {0} et posez une question.",
+    openSettings: "Ouvrir les Paramètres",
+
+    ollamaHostLabel: "Serveur Ollama (hôte local ou IP réseau)",
+    ollamaHostHelp:
+      "Par défaut http://127.0.0.1:11434. Pour un serveur réseau, utilisez ex. http://192.168.1.50:11434",
+    apiKeysHeader:
+      "Clés API (stockées en toute sécurité avec chiffrement DPAPI)",
+
+    // Custom OpenAI-compatible providers
+    customProviders: "Fournisseurs personnalisés (compatibles OpenAI)",
+    customProviderDesc:
+      "Connectez n'importe quel endpoint compatible OpenAI (OpenRouter, Mistral, Together, vLLM…). Collez l'URL de base complète, ex. https://openrouter.ai/api/v1",
+    providerName: "Nom",
+    baseUrlLabel: "URL de base (compatible OpenAI)",
+    customDefaultModelLabel: "Modèle par défaut (optionnel)",
+    providerApiKey: "Clé API (optionnelle)",
+    addProvider: "Ajouter un fournisseur",
+    saveProvider: "Enregistrer le fournisseur",
+    editProvider: "Modifier le fournisseur",
+    deleteProvider: "Supprimer le fournisseur",
+    noCustomProviders:
+      "Aucun fournisseur personnalisé pour l'instant. Ajoutez-en un ci-dessus.",
+    noKey: "Pas de clé API",
+    baseUrlError: "L'URL de base doit commencer par http:// ou https://",
+
+    // Custom Buttons Editor
+    customButtonsTitle: "Boutons de prompts personnalisés",
+    customButtonsDesc:
+      "Créez des boutons d'action avec vos propres modèles de prompt.",
+    addCustomButton: "Ajouter un bouton personnalisé",
+    buttonLabelPlaceholder: "Nom du bouton (ex. Optimiser SQL)",
+    buttonPromptPlaceholder:
+      "Modèle de prompt (ex. Optimisez cette requête pour la vitesse et ajoutez des index :)",
+    editButton: "Modifier",
+    saveButton: "Enregistrer les paramètres",
+    cancelButton: "Annuler",
+    resetDefaults: "Restaurer les boutons par défaut",
+    customButtonAdded: "Bouton personnalisé créé !",
+
+    // Chats
+    chats: "Conversations",
+    noChats: "Aucune conversation pour l'instant",
+    searchChats: "Rechercher des conversations",
+    renameChat: "Renommer",
+    deleteChat: "Supprimer",
+    deleteChatConfirm: "Supprimer cette conversation ?",
+
+    // Slash commands
+    slashHint: "Tapez / pour exécuter une commande",
+    noCommands: "Aucune commande correspondante",
+
+    // Image context
+    imageContext: "Contexte d'image",
+    removeImage: "Supprimer l'image",
+    pasteImageHint:
+      "Collez une capture d'écran (Ctrl+V) pour interroger un modèle de vision",
+    imageUnsupported:
+      "Ce fournisseur ne prend pas en charge les images. Passez à un modèle de vision.",
+
+    // Settings data & updates
+    exportSettings: "Exporter les paramètres",
+    exportSettingsDesc:
+      "Enregistrez vos paramètres (langue, fournisseurs, boutons) dans un fichier JSON",
+    importSettings: "Importer les paramètres",
+    importSettingsDesc: "Charger les paramètres depuis un fichier JSON",
+    settingsExported: "Paramètres exportés",
+    settingsImported: "Paramètres importés",
+    checkUpdates: "Rechercher des mises à jour",
+    checkingUpdates: "Vérification...",
+    upToDate: "Vous êtes à jour",
+    clearData: "Zone de danger",
+    clearDataDesc:
+      "Supprime définitivement les données locales. Action irréversible.",
+    clearPromptHistory: "Effacer l'historique des prompts",
+    clearConversations: "Effacer les conversations",
+    clearSavedKeys: "Supprimer toutes les clés API enregistrées",
+    confirmClear: "Êtes-vous sûr ? Action irréversible.",
+    dataCleared: "Données effacées",
   },
 } as const;
 

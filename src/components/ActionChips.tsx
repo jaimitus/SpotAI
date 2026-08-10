@@ -92,8 +92,8 @@ export function ActionChips({
               "focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60",
               "disabled:cursor-not-allowed disabled:opacity-40",
               isActive
-                ? "border-cyan-400/50 bg-cyan-400/15 text-cyan-200 shadow-[0_0_12px_rgba(34,211,238,0.15)]"
-                : "border-white/10 bg-white/[0.03] text-zinc-400 hover:border-white/20 hover:bg-white/[0.06] hover:text-zinc-200",
+                ? "border-cyan-400/50 bg-cyan-400/15 text-[var(--pe-accent-strong)] shadow-[0_0_12px_rgba(34,211,238,0.15)]"
+                : "border-[var(--pe-border)] bg-[var(--pe-input)] text-[var(--pe-text-soft)] hover:border-[var(--pe-border)] hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]",
             )}
           >
             <Icon className="h-3 w-3 opacity-90 text-cyan-400" />
@@ -123,8 +123,8 @@ export function ActionChips({
               "focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60",
               "disabled:cursor-not-allowed disabled:opacity-40",
               isActive
-                ? "border-amber-400/50 bg-amber-400/15 text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.15)]"
-                : "border-amber-500/20 bg-amber-500/[0.05] text-amber-300/80 hover:border-amber-400/40 hover:bg-amber-500/10 hover:text-amber-200",
+                ? "border-amber-400/50 bg-amber-400/15 text-[var(--pe-amber-strong)] shadow-[0_0_12px_rgba(251,191,36,0.15)]"
+                : "border-amber-500/20 bg-amber-500/[0.05] text-[var(--pe-amber-strong)] hover:border-amber-400/40 hover:bg-amber-500/10 hover:text-[var(--pe-amber-strong)]",
             )}
           >
             <Icon className="h-3 w-3 text-amber-400 opacity-90" />

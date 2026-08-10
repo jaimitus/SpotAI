@@ -37,6 +37,13 @@ interface FlatItem {
   refIndex: number;
 }
 
+function formatModelSize(bytes?: number | null): string | null {
+  if (!bytes || bytes <= 0) return null;
+  const gb = bytes / 1024 ** 3;
+  if (gb >= 1) return `${gb.toFixed(1)} GB`;
+  return `${Math.round(bytes / 1024 ** 2)} MB`;
+}
+
 function ModelItem({
   model,
   selected,
@@ -61,8 +68,8 @@ function ModelItem({
       className={cn(
         "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors",
         highlighted || selected
-          ? "bg-cyan-400/10 text-cyan-200"
-          : "text-zinc-300 hover:bg-white/[0.05]",
+          ? "bg-cyan-400/10 text-[var(--pe-accent-strong)]"
+          : "text-[var(--pe-text)] hover:bg-[var(--pe-hover)]",
       )}
     >
       <span
@@ -71,7 +78,12 @@ function ModelItem({
           selected ? "bg-cyan-400" : "bg-zinc-600",
         )}
       />
-      <span className="truncate">{model.name || model.id}</span>
+      <span className="min-w-0 flex-1 truncate">{model.name || model.id}</span>
+      {formatModelSize(model.size) && (
+        <span className="shrink-0 font-mono text-[10px] text-[var(--pe-text-faint)]">
+          {formatModelSize(model.size)}
+        </span>
+      )}
     </button>
   );
 }
@@ -223,7 +235,7 @@ export function ProviderBadge({
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-all",
-          "border-white/10 bg-white/[0.04] text-zinc-300 hover:border-white/20 hover:bg-white/[0.07]",
+          "border-[var(--pe-border)] bg-[var(--pe-input)] text-[var(--pe-text)] hover:border-[var(--pe-border)] hover:bg-[var(--pe-hover)]",
           "focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50",
         )}
       >
@@ -232,9 +244,9 @@ export function ProviderBadge({
         ) : (
           <Zap className="h-3 w-3 text-cyan-400" strokeWidth={2.5} />
         )}
-        <span className="text-zinc-400">{badgeLabel}</span>
-        <span className="text-zinc-600">|</span>
-        <span className="max-w-[120px] truncate text-zinc-200">
+        <span className="text-[var(--pe-text-soft)]">{badgeLabel}</span>
+        <span className="text-[var(--pe-text-faint)]">|</span>
+        <span className="max-w-[120px] truncate text-[var(--pe-text)]">
           {shortModel || t(lang, "selectModel")}
         </span>
         {provider === "ollama" && (
@@ -248,7 +260,7 @@ export function ProviderBadge({
         )}
         <ChevronDown
           className={cn(
-            "h-3 w-3 text-zinc-500 transition-transform",
+            "h-3 w-3 text-[var(--pe-text-muted)] transition-transform",
             open && "rotate-180",
           )}
         />
@@ -257,13 +269,13 @@ export function ProviderBadge({
       {open && (
         <div
           className={cn(
-            "absolute right-0 top-[calc(100%+6px)] z-50 w-72 overflow-hidden rounded-xl border border-white/10",
-            "bg-[#0c0e14]/95 shadow-2xl shadow-black/50 backdrop-blur-xl",
+            "pe-pop absolute right-0 top-[calc(100%+6px)] z-50 w-72 overflow-hidden rounded-xl border border-[var(--pe-border)]",
+            "bg-[var(--pe-bg-2)] shadow-2xl shadow-black/50 backdrop-blur-xl",
           )}
         >
           {/* Header: search + refresh */}
-          <div className="flex items-center gap-1.5 border-b border-white/[0.06] px-2.5 py-2">
-            <Search className="h-3 w-3 shrink-0 text-zinc-500" />
+          <div className="flex items-center gap-1.5 border-b border-[var(--pe-border-soft)] px-2.5 py-2">
+            <Search className="h-3 w-3 shrink-0 text-[var(--pe-text-muted)]" />
             <input
               ref={searchRef}
               value={query}
@@ -273,7 +285,7 @@ export function ProviderBadge({
               }}
               onKeyDown={onSearchKeyDown}
               placeholder={t(lang, "searchModels")}
-              className="min-w-0 flex-1 bg-transparent text-[12px] text-zinc-200 outline-none placeholder:text-zinc-600"
+              className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--pe-text)] outline-none placeholder:text-[var(--pe-text-faint)]"
               spellCheck={false}
             />
             <button
@@ -281,7 +293,7 @@ export function ProviderBadge({
               onClick={() => onRefresh?.()}
               title={t(lang, "refreshModels")}
               aria-label={t(lang, "refreshModels")}
-              className="rounded-md p-1 text-zinc-500 transition hover:bg-white/5 hover:text-cyan-300"
+              className="rounded-md p-1 text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-accent-strong)]"
             >
               <RefreshCw className="h-3 w-3" />
             </button>
@@ -289,7 +301,7 @@ export function ProviderBadge({
 
           <div className="max-h-80 overflow-y-auto p-1.5 custom-scroll">
             {flatItems.length === 0 && (
-              <div className="px-2.5 py-2 text-[11px] text-zinc-600">
+              <div className="px-2.5 py-2 text-[11px] text-[var(--pe-text-faint)]">
                 {t(lang, "noMatchingModels")}
               </div>
             )}
@@ -299,19 +311,19 @@ export function ProviderBadge({
               if (list.length === 0 && normalizedQuery) return null;
               return (
                 <div key={p} className="mb-1">
-                  <div className="flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                  <div className="flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--pe-text-muted)]">
                     {pMeta.mode === "local" ? (
                       <Zap className="h-3 w-3" style={{ color: pMeta.color }} />
                     ) : (
                       <Cloud className="h-3 w-3" style={{ color: pMeta.color }} />
                     )}
                     {pMeta.label}
-                    <span className="ml-auto font-normal normal-case tracking-normal text-zinc-600">
+                    <span className="ml-auto font-normal normal-case tracking-normal text-[var(--pe-text-faint)]">
                       {pMeta.mode === "local" ? t(lang, "local") : t(lang, "cloud")}
                     </span>
                   </div>
                   {list.length === 0 ? (
-                    <div className="px-2.5 py-1.5 text-[11px] text-zinc-600">
+                    <div className="px-2.5 py-1.5 text-[11px] text-[var(--pe-text-faint)]">
                       {p === "ollama" ? t(lang, "noLocalModels") : t(lang, "configureInSettings")}
                     </div>
                   ) : (
@@ -326,15 +338,15 @@ export function ProviderBadge({
               if (list.length === 0 && normalizedQuery) return null;
               return (
                 <div key={key} className="mb-1">
-                  <div className="flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                  <div className="flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--pe-text-muted)]">
                     <Cloud className="h-3 w-3" style={{ color: "#60a5fa" }} />
                     {cp.name}
-                    <span className="ml-auto font-normal normal-case tracking-normal text-zinc-600">
+                    <span className="ml-auto font-normal normal-case tracking-normal text-[var(--pe-text-faint)]">
                       {t(lang, "cloud")}
                     </span>
                   </div>
                   {list.length === 0 ? (
-                    <div className="px-2.5 py-1.5 text-[11px] text-zinc-600">
+                    <div className="px-2.5 py-1.5 text-[11px] text-[var(--pe-text-faint)]">
                       {t(lang, "configureInSettings")}
                     </div>
                   ) : (

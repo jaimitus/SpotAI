@@ -11,7 +11,7 @@ const configVersion = (
   ) as { version?: string }
 ).version;
 
-const languages = ["en", "es", "de"] as const;
+const languages = ["en", "es", "de", "pt", "fr"] as const;
 
 type EnKey = keyof typeof translations.en;
 
@@ -37,8 +37,8 @@ describe("i18n", () => {
     }
   });
 
-  it("has no empty values in the Spanish and German dictionaries", () => {
-    for (const lang of ["es", "de"] as const) {
+  it("has no empty values in the non-English dictionaries", () => {
+    for (const lang of ["es", "de", "pt", "fr"] as const) {
       const empty = enKeys.filter(
         (key) => !translations[lang][key] || translations[lang][key].trim() === "",
       );

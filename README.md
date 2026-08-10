@@ -1,4 +1,4 @@
-# SpotAI v1.2.0 🚀
+# SpotAI v1.2.1 🚀
 
 > **The ultra-fast, Raycast-inspired AI Spotlight launcher for Windows.**  
 > Access local LLMs (Ollama, LM Studio) or cloud models (OpenAI, Anthropic, OpenRouter, DeepSeek) anywhere with a single shortcut (`Alt + Space`).
@@ -6,11 +6,28 @@
 ![SpotAI Interface](SpotAI_UI.png)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-orange.svg?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/jaimitus)
-[![Release](https://img.shields.io/badge/version-1.2.0-cyan.svg)](https://github.com/jaimitus/SpotAI/releases)
+[![Release](https://img.shields.io/badge/version-1.2.1-cyan.svg)](https://github.com/jaimitus/SpotAI/releases)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-blue.svg)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Backend-Rust-orange.svg)](https://www.rust-lang.org)
 [![React](https://img.shields.io/badge/Frontend-React%2019-61dafb.svg)](https://reactjs.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+---
+
+## 🌟 What's New in v1.2.1
+
+- 🗂️ **Conversation Manager**: Every chat is saved to a browsable list — reopen past conversations, rename them, search, or delete them. One-click *New chat* starts fresh, and your old single-chat history is migrated automatically.
+- 🔎 **Slash Commands** (`/`): Type `/` in the input to open a Raycast-style command palette with every action chip and your custom buttons — navigate with `↑/↓`, apply with `Enter` or `Tab`.
+- 🖼️ **Image Context (Vision)**: Paste a screenshot directly into the input (`Ctrl+V`) and ask vision-capable models (GPT-4o, Claude, Ollama vision models…) about it. Handled natively per provider (OpenAI image_url, Anthropic image blocks, Ollama base64).
+- 🧠 **Model Memory per Provider**: SpotAI remembers the last model you picked for each provider, so switching between local/cloud keeps your choice.
+- 🛡️ **Anthropic History Fix**: Message history is now sanitized (strict user/assistant alternation) so Claude never rejects a turn after a failed generation.
+- 🌍 **Two New Languages**: Full interface + action prompts in **Português** and **Français** (now 5 languages, all enforced by tests).
+- 💾 **Settings Backup & Restore**: Export your settings to a JSON file and re-import them on any machine.
+- 🔄 **Manual Update Check**: A "Check for updates" button in Settings with one-click install & restart.
+- 🧹 **Data Controls**: Clear prompt history, conversations, or all saved API keys from Settings (danger zone, with confirmation).
+- 📏 **Model Sizes in the Picker**: Ollama model sizes (GB/MB) now shown in the model dropdown.
+- 🎨 **UI Polish**: Compact popover animations, refined streaming caret, discoverability hints — the spotlight stays small and fast.
+- 🌗 **Themes (Dark / Light / System)**: An Appearance setting in Options swaps the whole interface through CSS theme tokens; **System** follows your Windows color scheme live. Code blocks stay dark for contrast.
 
 ---
 
@@ -85,16 +102,18 @@
 | `↑ / ↓` | Navigate prompt history |
 | `Ctrl + Enter` | Auto-insert the last response into the previous app |
 | `Ctrl + ,` | Open Settings Modal |
+| `/` + `↑/↓` + `Enter` | Open the command palette and apply a slash command |
+| `Ctrl + V` (with a screenshot) | Attach an image as context for vision models |
 
 ---
 
 ## 🚀 Quick Download & Installation
 
-Download the latest version from [GitHub Releases](https://github.com/jaimitus/SpotAI/releases/tag/v1.2.0):
+Download the latest version from [GitHub Releases](https://github.com/jaimitus/SpotAI/releases/tag/v1.2.1):
 
 - 🗂️ **Portable (no install)**: `SpotAI-Portable.zip` — unzip and run `SpotAI.exe` directly, nothing to install (requires Windows 10/11 with WebView2).
-- ⚡ **Installer (NSIS)**: `SpotAI_1.2.0_x64-setup.exe`
-- 📦 **Installer (MSI)**: `SpotAI_1.2.0_x64_en-US.msi`
+- ⚡ **Installer (NSIS)**: `SpotAI_1.2.1_x64-setup.exe`
+- 📦 **Installer (MSI)**: `SpotAI_1.2.1_x64_en-US.msi`
 
 *(All assets — installers, portable zip, updater signatures and `latest.json` — are attached to the GitHub Release. Note: the portable build does not auto-update; use an installer if you want the built-in updater.)*
 
