@@ -1,4 +1,4 @@
-# SpotAI v1.2.2 🚀
+# SpotAI v1.2.3 🚀
 
 > **The ultra-fast, Raycast-inspired AI Spotlight launcher for Windows.**  
 > Access local LLMs (Ollama, LM Studio) or cloud models (OpenAI, Anthropic, OpenRouter, DeepSeek) anywhere with a single shortcut (`Alt + Space`).
@@ -6,7 +6,7 @@
 ![SpotAI Interface](SpotAI_UI.png)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-orange.svg?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/jaimitus)
-[![Release](https://img.shields.io/badge/version-1.2.2-cyan.svg)](https://github.com/jaimitus/SpotAI/releases)
+[![Release](https://img.shields.io/badge/version-1.2.3-cyan.svg)](https://github.com/jaimitus/SpotAI/releases)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-blue.svg)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Backend-Rust-orange.svg)](https://www.rust-lang.org)
 [![React](https://img.shields.io/badge/Frontend-React%2019-61dafb.svg)](https://reactjs.org)
@@ -87,11 +87,11 @@ Every version's changes — from v1.0.0 to the latest — live in the versioned 
 
 ## 🚀 Quick Download & Installation
 
-Download the latest version from [GitHub Releases](https://github.com/jaimitus/SpotAI/releases/tag/v1.2.2):
+Download the latest version from [GitHub Releases](https://github.com/jaimitus/SpotAI/releases/tag/v1.2.3):
 
 - 🗂️ **Portable (no install)**: `SpotAI-Portable.zip` — unzip and run `SpotAI.exe` directly, nothing to install (requires Windows 10/11 with WebView2).
-- ⚡ **Installer (NSIS)**: `SpotAI_1.2.2_x64-setup.exe`
-- 📦 **Installer (MSI)**: `SpotAI_1.2.2_x64_en-US.msi`
+- ⚡ **Installer (NSIS)**: `SpotAI_1.2.3_x64-setup.exe`
+- 📦 **Installer (MSI)**: `SpotAI_1.2.3_x64_en-US.msi`
 
 *(All assets — installers, portable zip, updater signatures and `latest.json` — are attached to the GitHub Release. Note: the portable build does not auto-update; use an installer if you want the built-in updater.)*
 

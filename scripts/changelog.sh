@@ -87,6 +87,19 @@ emit_sections() {
 # tag has no curated section, so the commit-based fallback is used.
 curated_section() {
   case "$1" in
+    v1.2.3)
+      cat <<'EOF'
+### ✨ New Features
+- ⌨️ **English Slash-Command Keywords**: Direct keyword execution (`/new`, `/theme`, `/capture`, `/explain`…) — type and press Enter to run immediately, no palette browsing needed.
+- 🏷️ **Keyword Badges in the Palette**: Each slash-command row now shows its direct keyword (`/new`, `/fix`, …) so users discover the shortcuts.
+- 🧪 **E2E Tests for Direct Commands**: Playwright tests verify `/theme` + Enter toggles the theme, `/new` clears the prompt, and fuzzy matching still works.
+- 🧹 **Cleaned Up i18n**: Removed unused system-command translation keys (`systemNewChat`, `systemToggleTheme`, …) from all 5 languages.
+- 📖 **Slash-Commands Documentation**: Full table of the 14 commands (`/new` … `/comment`) now in the README Keyboard Shortcuts section.
+- 🎨 **Themed Context Scrollbar**: The captured-context preview scrollbar uses the same `custom-scroll` class as the response panel, adapting to dark/light themes.
+- 🔍 **Prominent Update Check**: The "Check for updates" button moved to a visible position in the General tab.
+- 📝 **README Release History**: Version-specific "What's New" sections moved to the versioned [CHANGELOG.md](CHANGELOG.md); the README now focuses on Key Features and quick-start.
+EOF
+      ;;
     v1.2.2)
       cat <<'EOF'
 ### ✨ New Features

@@ -4842,7 +4842,7 @@ dependencies = [
 
 [[package]]
 name = "spotai"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "arboard",
  "base64 0.22.1",

@@ -9,15 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## ✨ New Features
+
+- show /keyword badge in slash palette so users discover direct commands
+- direct English slash-command keywords (/new, /theme...) with exact-match execution + unit tests
+
 ## 📚 Documentation
 
+- list all slash commands (/new, /theme, /explain...) in README
 - add versioned CHANGELOG.md generated from git tags (npm run changelog:all)
+
+## 🧪 Tests
+
+- E2E for direct slash-command keywords (/theme, /new, /cap)
 
 ## 🔧 CI & Build
 
 - auto-generate and commit CHANGELOG.md in the release workflow (fetch-depth 0)
 - pass changelog to tauri-action via releaseBody output
 
+## 🧹 Maintenance
+
+- remove unused system slash-command i18n keys from all 5 languages
+
+## 📦 Other
+
+- i18n: English system slash commands, themed context scrollbar, prominent update check, README release history -> CHANGELOG
 
 ## [v1.2.2] - 2026-08-10
 
