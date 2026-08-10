@@ -464,6 +464,59 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn write_wav_writes_the_real_sample_rate_in_the_header() {
+        let dir = std::env::temp_dir().join(format!("spotai_wav_test_{}", timestamp_ns()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("voice_48k.wav");
+
+        // One second of a rising ramp at 48 kHz (a typical desktop mic rate).
+        let samples: Vec<f32> = (0..48_000)
+            .map(|i| (i as f32 / 48_000.0) * 0.5)
+            .collect();
+
+        write_wav(&path, &samples, 48_000).expect("write wav");
+
+        let mut reader = hound::WavReader::open(&path).expect("open wav");
+        let spec = reader.spec();
+        assert_eq!(spec.channels, 1);
+        assert_eq!(spec.bits_per_sample, 16);
+        assert_eq!(spec.sample_format, hound::SampleFormat::Int);
+        assert_eq!(
+            spec.sample_rate, 48_000,
+            "the WAV header must carry the real device rate, not a hardcoded 16000"
+        );
+        assert_eq!(reader.duration(), 48_000, "one second at 48 kHz");
+
+        // The samples round-trip: starts at 0.0 and ends near +0.5 amplitude.
+        let written: Vec<i16> = reader.samples::<i16>().map(|s| s.unwrap()).collect();
+        assert_eq!(written.len(), 48_000);
+        assert_eq!(written[0], 0);
+        assert!(written[47_999] > 16_000, "peak should be near 0.5 * i16::MAX");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_wav_header_follows_the_passed_rate() {
+        let dir = std::env::temp_dir().join(format!("spotai_wav_rates_{}", timestamp_ns()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // The header must follow the argument for ANY rate — proving it is not
+        // pinned to a hardcoded 16000.
+        for rate in [8_000u32, 16_000, 22_050, 44_100, 48_000] {
+            let path = dir.join(format!("voice_{rate}.wav"));
+            // Exactly one second of silence.
+            let samples = vec![0.0f32; rate as usize];
+            write_wav(&path, &samples, rate).expect("write wav");
+            let spec = hound::WavReader::open(&path).expect("open wav").spec();
+            assert_eq!(spec.sample_rate, rate, "header must match the passed rate");
+            assert_eq!(spec.channels, 1);
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 // ── Live transcription (Windows WinRT SpeechRecognizer) ────────────────────
