@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Auto-generated from git history with `npm run changelog:all`.
 
+## [v1.3.3] - 2026-08-10
+
+### 🐛 Bug Fixes
+- 🎙️ **Dictation Actually Works**: Three fixes make transcription reliable end-to-end. The recorded WAV header now carries the **real device sample rate** (no more hardcoded 16 kHz that made Whisper hear desktop mics at 44.1/48 kHz ~3× slower and fail), the selected **voice engine + microphone are synced to the backend at startup** (no more reverting to the broken native engine after a restart), and silent captures show an honest **"No speech detected"** instead of injecting a `[BLANK_AUDIO]` token.
+### 🧪 Tests
+- 📼 **WAV Header Tests**: New Rust tests prove `write_wav` writes the real sample rate (48 kHz ramp + a 5-rate sweep from 8 to 48 kHz) — regression-proof against the hardcoded header.
+- 🔁 **Startup Sync E2E**: Playwright tests verify the selected Whisper engine *and* microphone are pushed to the backend on boot, reproducing the lost-engine bug exactly.
+
 ## [v1.3.2] - 2026-08-10
 
 ### 🐛 Bug Fixes
