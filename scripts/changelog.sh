@@ -88,6 +88,15 @@ emit_sections() {
 # tag has no curated section, so the commit-based fallback is used.
 curated_section() {
   case "$1" in
+    v1.3.2)
+      cat <<'EOF'
+### 🐛 Bug Fixes
+- 🪟 **No More Console Window**: whisper-cli now spawns with `CREATE_NO_WINDOW`, so dictation no longer flashes an ugly cmd window while the WAV is transcribed.
+- ⏱️ **Dynamic Transcription Timeout**: The wait for Whisper now scales with the recording length (min 20s, cap 5min) instead of a fixed 9s that used to give up before local CPU transcription finished on longer captures. The native engine keeps its fast 9s.
+### ♻️ Refactors
+- 🧩 **Pure Helpers + Unit Tests**: `formatCaptureTime`/`formatDuration` (`src/lib/format.ts`) and `getVoiceTranscriptionTimeout` (`src/lib/voiceTimeout.ts`) were extracted from the spotlight UI into pure, tested modules — 11 new Vitest cases cover the locale mapping, mm:ss formatting and the timeout bounds (9s native / 20s floor / 5min cap).
+EOF
+      ;;
     v1.3.1)
       cat <<'EOF'
 ### ✨ New Features

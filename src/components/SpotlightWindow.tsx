@@ -41,8 +41,10 @@ import {
   trimMessages,
   upsertConversation,
 } from "../lib/conversations";
+import { formatCaptureTime, formatDuration } from "../lib/format";
 import { t } from "../lib/i18n";
 import { resolveTheme, subscribeSystemTheme } from "../lib/theme";
+import { getVoiceTranscriptionTimeout } from "../lib/voiceTimeout";
 import type { ThemePreference } from "../types";
 import { buildActionPrompt } from "../lib/prompts";
 import { buildSlashActions, getSlashQuery, type SlashAction } from "../lib/slash";
@@ -87,7 +89,6 @@ import type {
   ContextKind,
   Conversation,
   CustomAction,
-  Language,
   ModelInfo,
   PromptTemplate,
   QuickActionPayload,
@@ -111,25 +112,6 @@ const WINDOW_SIZE_KEY = "spotai.window-size.v1";
 // policy was not accepted" error (the app lacks microphone permission), so
 // Settings can show an actionable warning until a transcription succeeds.
 const MIC_PERMISSION_KEY = "spotai.mic-permission.v1";
-
-/** Formats a capture timestamp as a localized clock time (e.g. "14:32:05"). */
-function formatCaptureTime(timestamp: number, lang: Language): string {
-  const locale =
-    lang === "es" ? "es-ES" : lang === "de" ? "de-DE" : lang === "pt" ? "pt-PT" : lang === "fr" ? "fr-FR" : "en-GB";
-  return new Date(timestamp).toLocaleTimeString(locale, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-/** Formats a duration in seconds as mm:ss (e.g. 73 → "01:13"). */
-function formatDuration(seconds: number): string {
-  const total = Math.max(0, Math.floor(seconds));
-  const minutes = Math.floor(total / 60);
-  const secs = total % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-}
 
 /** Formats an elapsed duration as mm:ss (e.g. "00:07"). */
 function formatElapsed(start: number, now: number): string {
@@ -309,16 +291,22 @@ export function SpotlightWindow() {
   // Enter the "Transcribing…" state for the current voice session.  A timeout
   // guard prevents the state from hanging forever when the OS recognizer is
   // unavailable (e.g. no language pack) or a rapid re-record was dropped.
-  const beginWaitingForTranscription = useCallback(() => {
+  const beginWaitingForTranscription = useCallback((durationSecs?: number) => {
     voiceWaitingSessionRef.current = voiceSessionRef.current;
     setTranscribing(true);
     clearTranscribeTimer();
+    // The native recognizer answers in a couple of seconds. Whisper is a local
+    // CPU transcription that scales with the recording length, so a fixed 9s
+    // timeout would give up before whisper-cli finishes on longer captures.
+    // The whisper callers always pass a number (even 0 for an empty capture),
+    // while the native engine callers pass nothing and keep the fast 9s.
+    const timeoutMs = getVoiceTranscriptionTimeout(durationSecs);
     transcribeTimerRef.current = window.setTimeout(() => {
       transcribeTimerRef.current = null;
       setTranscribing(false);
       setRecordingDuration(null);
       setVoiceError(t(currentLang, "transcribeTimeout") || "Transcription timed out");
-    }, 9000);
+    }, timeoutMs);
   }, [currentLang]);
 
   const cancelWaitingForTranscription = useCallback(() => {
@@ -1090,8 +1078,9 @@ export function SpotlightWindow() {
       setRecordingDuration(event.durationSecs);
       if (event.engine === "whisper") {
         // Whisper engine: transcribe the recorded WAV file. The result
-        // arrives via the voice-transcribed event.
-        beginWaitingForTranscription();
+        // arrives via the voice-transcribed event. Scale the wait with the
+        // recording length (local CPU transcription).
+        beginWaitingForTranscription(event.durationSecs);
         void transcribeVoiceWav(event.path).catch(() => undefined);
       } else {
         // Native engine transcribes the live mic; the text arrives via the
@@ -1194,7 +1183,7 @@ export function SpotlightWindow() {
           setRecording(false);
           setRecordingDuration(result.durationSecs);
           if (result.engine === "whisper") {
-            beginWaitingForTranscription();
+            beginWaitingForTranscription(result.durationSecs);
             void transcribeVoiceWav(result.path).catch(() => undefined);
           } else {
             // Wait for the voice-transcribed event from the native engine.

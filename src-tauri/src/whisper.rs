@@ -228,7 +228,8 @@ pub fn transcribe(app: &AppHandle, wav_path: &Path) -> Result<String, String> {
     let exe = exe_path(app);
     let model = model_path(app);
 
-    let output = std::process::Command::new(&exe)
+    let mut command = std::process::Command::new(&exe);
+    command
         .arg("-m")
         .arg(&model)
         .arg("-f")
@@ -241,7 +242,17 @@ pub fn transcribe(app: &AppHandle, wav_path: &Path) -> Result<String, String> {
         .current_dir(
             exe.parent()
                 .ok_or_else(|| "whisper-cli folder is missing".to_string())?,
-        )
+        );
+
+    // whisper-cli is a console application; without CREATE_NO_WINDOW Windows
+    // flashes an ugly cmd window for the duration of the transcription.
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    let output = command
         .output()
         .map_err(|e| format!("Could not run whisper-cli: {e}"))?;
 
