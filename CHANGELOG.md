@@ -7,34 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Auto-generated from git history with `npm run changelog:all`.
 
-## [Unreleased]
+## [v1.2.3] - 2026-08-10
 
-## ✨ New Features
-
-- show /keyword badge in slash palette so users discover direct commands
-- direct English slash-command keywords (/new, /theme...) with exact-match execution + unit tests
-
-## 📚 Documentation
-
-- list all slash commands (/new, /theme, /explain...) in README
-- add versioned CHANGELOG.md generated from git tags (npm run changelog:all)
-
-## 🧪 Tests
-
-- E2E for direct slash-command keywords (/theme, /new, /cap)
-
-## 🔧 CI & Build
-
-- auto-generate and commit CHANGELOG.md in the release workflow (fetch-depth 0)
-- pass changelog to tauri-action via releaseBody output
-
-## 🧹 Maintenance
-
-- remove unused system slash-command i18n keys from all 5 languages
-
-## 📦 Other
-
-- i18n: English system slash commands, themed context scrollbar, prominent update check, README release history -> CHANGELOG
+### ✨ New Features
+- ⌨️ **English Slash-Command Keywords**: Direct keyword execution (`/new`, `/theme`, `/capture`, `/explain`…) — type and press Enter to run immediately, no palette browsing needed.
+- 🏷️ **Keyword Badges in the Palette**: Each slash-command row now shows its direct keyword (`/new`, `/fix`, …) so users discover the shortcuts.
+- 🧪 **E2E Tests for Direct Commands**: Playwright tests verify `/theme` + Enter toggles the theme, `/new` clears the prompt, and fuzzy matching still works.
+- 🧹 **Cleaned Up i18n**: Removed unused system-command translation keys (`systemNewChat`, `systemToggleTheme`, …) from all 5 languages.
+- 📖 **Slash-Commands Documentation**: Full table of the 14 commands (`/new` … `/comment`) now in the README Keyboard Shortcuts section.
+- 🎨 **Themed Context Scrollbar**: The captured-context preview scrollbar uses the same `custom-scroll` class as the response panel, adapting to dark/light themes.
+- 🔍 **Prominent Update Check**: The "Check for updates" button moved to a visible position in the General tab.
+- 📝 **README Release History**: Version-specific "What's New" sections moved to the versioned [CHANGELOG.md](CHANGELOG.md); the README now focuses on Key Features and quick-start.
 
 ## [v1.2.2] - 2026-08-10
 
@@ -83,6 +66,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🔍 **Smarter Model Picker**: Live search, full keyboard navigation, refresh button and grouped sections.
 - 🎓 **First-Run Onboarding**: A quick 3-step guide when nothing is configured yet.
 - 🧪 **Unit Tests & CI**: Rust + Vitest tests and GitHub Actions CI/release workflows.
+
+## [v1.1.0] - 2026-08-08
+
+## ✨ New Features
+
+- localize prompt templates for Spanish and German, add GitHub repo link and v1.1.0 version badges
+- Release v1.1.0 - Multi-language support (EN, ES, DE) and Custom Prompt Action buttons
+
+## 🐛 Bug Fixes
+
+- launch external browser natively on Windows when clicking GitHub repository links
+
+## 📚 Documentation
+
+- update README.md for v1.1.0 with new features and Buy Me A Coffee badge
+
+## 🧹 Maintenance
+
+- remove binaries from root and add *.exe, *.msi, *.zip to .gitignore
+
+
+## [v1.0.0] - 2026-08-08
+
+## 📦 Other
+
+- release: v1.0.0 initial release of SpotAI Spotlight Launcher
 
 ## [v1.1.0] - 2026-08-08
 
