@@ -9,6 +9,9 @@ test("renders the spotlight shell with title and input", async ({ page }) => {
 });
 
 test("light theme applies through the Settings modal and persists", async ({ page }) => {
+  // First tests in the file pay the vite dev-server cold compile, which can
+  // exceed the default 30s timeout when the machine is under load.
+  test.setTimeout(60_000);
   await page.goto("/");
   // The window starts on the saved/default theme (dark).
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");

@@ -193,7 +193,7 @@ Download the latest version from [GitHub Releases](https://github.com/jaimitus/S
        "platforms": {
          "windows-x86_64": {
            "signature": "<content of the .sig file>",
-           "url": "https://github.com/jaimitus/SpotAI/releases/download/v1.3.4/SpotAI_1.4.0_x64-setup.exe"
+           "url": "https://github.com/jaimitus/SpotAI/releases/download/v1.4.0/SpotAI_1.4.0_x64-setup.exe"
          }
        }
      }
@@ -217,6 +217,7 @@ SpotAI
 │   ├── src/
 │   │   ├── commands.rs      # Tauri API commands (Streaming, Ollama, Browser Launcher)
 │   │   ├── native_input.rs  # Windows native input injection & paste (Ctrl+V)
+│   │   ├── rag.rs           # Local RAG: sqlite-vec index + Ollama embeddings
 │   │   ├── secure_store.rs  # Local DPAPI secure credential storage
 │   │   ├── voice.rs         # Voice capture (cpal) + Windows SAPI dictation
 │   │   ├── whisper.rs       # whisper.cpp download & offline transcription

@@ -673,13 +673,12 @@ async fn stream_openai_compatible(
     });
     if !reasoning_model {
         body["temperature"] = json!(request.temperature.unwrap_or(0.7));
-        // Add advanced sampling parameters for OpenAI-compatible endpoints
+        // Add advanced sampling parameters for OpenAI-compatible endpoints.
+        // top_k is intentionally NOT forwarded: it is not part of the OpenAI
+        // spec and strict endpoints (OpenAI itself) reject unknown arguments.
+        // Ollama and Anthropic still receive it from their own handlers.
         if let Some(top_p) = request.top_p {
             body["top_p"] = json!(top_p);
-        }
-        if let Some(top_k) = request.top_k {
-            // top_k is not standard in OpenAI API but some providers support it
-            body["top_k"] = json!(top_k);
         }
         if let Some(repeat_penalty) = request.repeat_penalty {
             // frequency_penalty ranges from -2 to 2, map repeat_penalty (1-2) appropriately

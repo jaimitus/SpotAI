@@ -3,6 +3,7 @@ import {
   Camera,
   Check,
   Clipboard,
+  Database,
   Download,
   ExternalLink,
   EyeOff,
@@ -14,6 +15,7 @@ import {
   RefreshCw,
   Settings2,
   Sparkles,
+  Terminal,
   X,
 } from "lucide-react";
 import {
@@ -77,10 +79,6 @@ import {
   openExternalUrl,
   registerShortcut,
   resolveHost,
-  ragGetStats,
-  ragIndexFiles,
-  ragQuery,
-  removeRagDocument as ragRemoveDocument,
   analyzeCommandSafety,
   executeShellCommand,
   saveSettings,
@@ -109,6 +107,7 @@ import type {
 import { cn } from "../utils/cn";
 import { ActionChips } from "./ActionChips";
 import { ProviderBadge } from "./ProviderBadge";
+import { RagPanel } from "./RagPanel";
 import { ResponsePanel } from "./ResponsePanel";
 import { ScreenCaptureOverlay } from "./ScreenCaptureOverlay";
 import { SettingsModal } from "./SettingsModal";
@@ -247,7 +246,11 @@ export function SpotlightWindow() {
   const [transcribing, setTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [showRagPanel, setShowRagPanel] = useState(false);
+  // CLI injection (/exec): command awaiting confirmation plus its result.
   const [pendingCommand, setPendingCommand] = useState<ShellCommand | null>(null);
+  const [execOutput, setExecOutput] = useState<string | null>(null);
+  const [execError, setExecError] = useState<string | null>(null);
+  const [execRunning, setExecRunning] = useState(false);
 
   const currentLang = settings.language || "en";
 
@@ -452,6 +455,12 @@ export function SpotlightWindow() {
     setActiveAction(null);
     // Cancel any pending quick-action auto-insert (Esc, new chat, incognito…).
     quickActionRef.current = null;
+    // Drop a pending /exec confirmation too: a stale "Run shell command"
+    // dialog must never survive Esc, a new chat or incognito mode.
+    setPendingCommand(null);
+    setExecOutput(null);
+    setExecError(null);
+    setExecRunning(false);
     // Drop any in-flight voice transcription so it cannot land in a newer session.
     voiceSessionRef.current += 1;
     cancelWaitingForTranscription();
@@ -571,6 +580,13 @@ export function SpotlightWindow() {
       systemPrompt: settings.systemPrompt || null,
       temperature: settings.temperature,
       maxTokens: settings.maxTokens,
+      // Advanced sampling parameters (Ollama & compatible endpoints)
+      topP: settings.topP ?? null,
+      topK: settings.topK ?? null,
+      repeatPenalty: settings.repeatPenalty ?? null,
+      seed: settings.seed ?? null,
+      numCtx: settings.numCtx ?? null,
+      numPredict: settings.numPredict ?? null,
       history: trimmedMessages,
     });
     // Never write a finished turn into a conversation the user switched away from.
@@ -981,10 +997,57 @@ export function SpotlightWindow() {
     }
   }, [captureLoading]);
 
+  // /exec <command>: analyze the safety level, then await confirmation in the
+  // inline dialog before the backend runs it (dangerous commands are blocked
+  // by the backend regardless of the UI state).
+  const handleExec = useCallback(
+    (command: string) => {
+      setExecOutput(null);
+      setExecError(null);
+      void analyzeCommandSafety(command)
+        .then((cmd) => setPendingCommand(cmd))
+        .catch((err) => {
+          setExecError(err instanceof Error ? err.message : String(err));
+          setPendingCommand(null);
+        });
+    },
+    [],
+  );
+
+  const confirmExecute = useCallback(async () => {
+    if (!pendingCommand || execRunning) return;
+    setExecRunning(true);
+    setExecError(null);
+    setExecOutput(null);
+    try {
+      const output = await executeShellCommand(pendingCommand);
+      setExecOutput(output);
+    } catch (err) {
+      setExecError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExecRunning(false);
+    }
+  }, [pendingCommand, execRunning]);
+
+  const closeExec = useCallback(() => {
+    setPendingCommand(null);
+    setExecOutput(null);
+    setExecError(null);
+    setExecRunning(false);
+  }, []);
+
   const handleSystemAction = (id: SystemActionId) => {
     switch (id) {
       case "new":
         newChat();
+        break;
+      case "exec": {
+        const command = prompt.replace(/^\/exec\s*/i, "").trim();
+        if (command) handleExec(command);
+        break;
+      }
+      case "rag":
+        setShowRagPanel(true);
         break;
       case "theme": {
         const resolved = settings.theme === "system" ? resolveTheme(undefined) : settings.theme;
@@ -1299,6 +1362,13 @@ export function SpotlightWindow() {
       systemPrompt: settings.systemPrompt || null,
       temperature: settings.temperature,
       maxTokens: settings.maxTokens,
+      // Advanced sampling parameters (Ollama & compatible endpoints)
+      topP: settings.topP ?? null,
+      topK: settings.topK ?? null,
+      repeatPenalty: settings.repeatPenalty ?? null,
+      seed: settings.seed ?? null,
+      numCtx: settings.numCtx ?? null,
+      numPredict: settings.numPredict ?? null,
       history: messages,
     });
     // The user may have switched chats (or started a new one) while the model
@@ -1575,6 +1645,22 @@ export function SpotlightWindow() {
               onRefresh={() => void reloadModels(settings)}
               onChange={handleProviderChange}
             />
+            {/* RAG panel: ask questions about indexed local files. Works in
+                browser mode too (stats/query degrade to errors without Tauri). */}
+            <button
+              type="button"
+              onClick={() => setShowRagPanel((open) => !open)}
+              title={t(currentLang, "ragTitle")}
+              aria-label={t(currentLang, "ragTitle")}
+              className={cn(
+                "rounded-lg p-1.5 transition",
+                showRagPanel
+                  ? "bg-violet-400/15 text-[var(--pe-violet-strong)]"
+                  : "text-[var(--pe-text-muted)] hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]",
+              )}
+            >
+              <Database className="h-4 w-4" />
+            </button>
             {/* Voice input only exists in the desktop runtime: without Tauri the
                 capture backend is unavailable, so hide the mic button. */}
             {isTauri() && (
@@ -2181,6 +2267,76 @@ export function SpotlightWindow() {
           saveSettings(s);
         }}
       />
+
+      {/* RAG panel ("Ask your files") — open via the top-bar button or /rag */}
+      {showRagPanel && (
+        <RagPanel lang={currentLang} onClose={() => setShowRagPanel(false)} />
+      )}
+
+      {/* CLI injection (/exec) — safety analysis + confirmation dialog */}
+      {pendingCommand && (
+        <div className="border-b border-[var(--pe-border-faint)] bg-[var(--pe-bg-2)] px-3 py-2.5 pe-pop">
+          <div className="mb-1.5 flex items-center justify-between">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-[var(--pe-accent-strong)]">
+              Run shell command
+            </div>
+            <button
+              type="button"
+              onClick={closeExec}
+              title={t(currentLang, "dismiss")}
+              className="rounded-md p-0.5 text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-2.5 py-2 font-mono text-[11px] text-[var(--pe-text)]">
+            {pendingCommand.command}
+          </div>
+          <div className="mt-1.5 flex items-center gap-2 text-[10px]">
+            <span
+              className={cn(
+                "rounded px-1.5 py-0.5 font-medium uppercase tracking-wide",
+                pendingCommand.safetyLevel === "dangerous"
+                  ? "bg-rose-400/15 text-[var(--pe-rose-strong)]"
+                  : pendingCommand.safetyLevel === "caution"
+                    ? "bg-amber-400/15 text-[var(--pe-amber-strong)]"
+                    : "bg-emerald-400/15 text-[var(--pe-emerald-strong)]",
+              )}
+            >
+              {pendingCommand.safetyLevel}
+            </span>
+            <span className="text-[var(--pe-text-faint)]">{pendingCommand.description}</span>
+          </div>
+          {execOutput !== null && (
+            <pre className="custom-scroll mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--pe-border-soft)] bg-[var(--pe-bg-3)] px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--pe-emerald-strong)]">
+              {execOutput}
+            </pre>
+          )}
+          {execError && (
+            <div className="mt-2 rounded-lg border border-rose-400/30 bg-rose-400/10 px-2.5 py-1.5 text-[11px] text-[var(--pe-rose-strong)]">
+              {execError}
+            </div>
+          )}
+          <div className="mt-2 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => void confirmExecute()}
+              disabled={execRunning}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500/90 px-2.5 py-1 text-[11px] font-medium text-zinc-950 transition hover:bg-cyan-400 disabled:cursor-wait disabled:opacity-60"
+            >
+              {execRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Terminal className="h-3 w-3" />}
+              Execute
+            </button>
+            <button
+              type="button"
+              onClick={closeExec}
+              className="rounded-lg px-2.5 py-1 text-[11px] text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]"
+            >
+              {t(currentLang, "cancel")}
+            </button>
+          </div>
+        </div>
+      )}
 
       {captureOpen && (
         <ScreenCaptureOverlay

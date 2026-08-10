@@ -97,7 +97,9 @@ export type SystemActionId =
   | "hide"
   | "clear"
   | "capture"
-  | "incognito";
+  | "incognito"
+  | "exec"
+  | "rag";
 
 export interface AppSettings {
   language: Language;

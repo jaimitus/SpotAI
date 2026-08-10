@@ -48,6 +48,8 @@ export const SYSTEM_SLASH_ACTIONS: {
   { id: "settings", label: "Open settings", icon: "wrench" },
   { id: "hide", label: "Hide window", icon: "list" },
   { id: "clear", label: "Clear conversation", icon: "code" },
+  { id: "exec", label: "Run shell command", icon: "terminal" },
+  { id: "rag", label: "Ask your files (RAG)", icon: "database" },
 ];
 
 /**

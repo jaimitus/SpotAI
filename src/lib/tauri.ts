@@ -237,12 +237,16 @@ export function loadSettings(): AppSettings {
     systemPrompt: "",
     temperature: 0.7,
     maxTokens: 4096,
-    topP: 0.9,
-    topK: 40,
-    repeatPenalty: 1.1,
+    // Advanced sampling params default to unset so out-of-the-box requests are
+    // byte-identical to previous versions. They are only sent once the user
+    // explicitly moves a slider in Settings (avoiding e.g. top_k reaching the
+    // OpenAI API, which rejects unknown arguments).
+    topP: undefined,
+    topK: undefined,
+    repeatPenalty: undefined,
     seed: undefined,
-    numCtx: 4096,
-    numPredict: 512,
+    numCtx: undefined,
+    numPredict: undefined,
     customActions: [],
     customProviders: [],
     promptTemplates: DEFAULT_PROMPT_TEMPLATES,

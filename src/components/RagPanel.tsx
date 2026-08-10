@@ -1,24 +1,40 @@
-import { FileText, X, Upload, Search, Database, Trash2 } from "lucide-react";
-import { useState, useCallback, DragEvent } from "react";
-import { isSupportedFile, ragGetStats, ragIndexFiles, ragQuery, ragRemoveDocument, type RagStats, type RagSearchResult } from "../lib/tauri";
+import { Database, FileText, Search, Trash2, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useState, type DragEvent, type FormEvent } from "react";
 import { t } from "../lib/i18n";
+import type { Language } from "../types";
+import {
+  isSupportedFile,
+  ragGetStats,
+  ragIndexFiles,
+  ragQuery,
+  ragRemoveDocument,
+  type RagSearchResult,
+  type RagStats,
+} from "../lib/tauri";
 
 interface RagPanelProps {
-  onQueryResults: (results: RagSearchResult[], query: string) => void;
+  lang: Language;
   onClose: () => void;
 }
 
-export function RagPanel({ onQueryResults, onClose }: RagPanelProps) {
+export function RagPanel({ lang, onClose }: RagPanelProps) {
   const [stats, setStats] = useState<RagStats | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [results, setResults] = useState<RagSearchResult[]>([]);
+  const [lastQuery, setLastQuery] = useState("");
 
-  // Load stats on mount
-  useState(() => {
-    ragGetStats().then(setStats).catch(console.error);
-  });
+  const loadStats = useCallback(() => {
+    void ragGetStats()
+      .then(setStats)
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
 
   const handleDragOver = useCallback((e: DragEvent) => {
     e.preventDefault();
@@ -32,224 +48,185 @@ export function RagPanel({ onQueryResults, onClose }: RagPanelProps) {
     setIsDragging(false);
   }, []);
 
-  const handleDrop = useCallback(async (e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
+  const handleDrop = useCallback(
+    async (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
 
-    const files = Array.from(e.dataTransfer.files);
-    const supportedFiles = files.filter(f => isSupportedFile(f.name));
+      const files = Array.from(e.dataTransfer.files);
+      // Tauri exposes the native path on the File object (drag & drop only).
+      const tauriFile = (f: File) => (f as File & { path?: string }).path;
+      const supported = files.filter((f) => isSupportedFile(f.name));
+      if (supported.length === 0) {
+        setError(t(lang, "ragUnsupportedFiles"));
+        return;
+      }
 
-    if (supportedFiles.length === 0) {
-      setError(t("rag.unsupportedFiles"));
-      return;
-    }
+      setIsLoading(true);
+      setError(null);
+      try {
+        const filePaths = supported.map((f) => tauriFile(f) || f.name);
+        await ragIndexFiles(filePaths);
+        setResults([]);
+        loadStats();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : t(lang, "ragIndexError"));
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [lang, loadStats],
+  );
 
-    setIsLoading(true);
-    setError(null);
+  const handleQuery = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      if (!query.trim()) return;
+      setIsLoading(true);
+      setError(null);
+      try {
+        const result = await ragQuery(query.trim(), 5);
+        setResults(result.results);
+        setLastQuery(result.query);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : t(lang, "ragQueryError"));
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [query, lang],
+  );
 
-    try {
-      const filePaths = supportedFiles.map(f => f.path || f.name);
-      const result = await ragIndexFiles(filePaths);
-      
-      // Refresh stats
-      const newStats = await ragGetStats();
-      setStats(newStats);
-
-      console.log(`Indexed ${Object.keys(result).length} files`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("rag.indexError"));
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const handleQuery = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim()) return;
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const result = await ragQuery(query.trim(), 5);
-      onQueryResults(result.results, result.query);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("rag.queryError"));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [query, onQueryResults]);
-
-  const handleRemoveDocument = useCallback(async (docPath: string) => {
-    try {
-      await ragRemoveDocument(docPath);
-      const newStats = await ragGetStats();
-      setStats(newStats);
-    } catch (err) {
-      console.error("Failed to remove document:", err);
-    }
-  }, []);
+  const handleRemoveDocument = useCallback(
+    async (docPath: string) => {
+      try {
+        await ragRemoveDocument(docPath);
+        setResults((current) => current.filter((r) => r.documentPath !== docPath));
+        loadStats();
+      } catch {
+        // Keep the row; the failure is non-critical.
+      }
+    },
+    [loadStats],
+  );
 
   return (
-    <div className="rag-panel" style={{ 
-      padding: "16px",
-      backgroundColor: "var(--background)",
-      borderRadius: "8px",
-      border: "1px solid var(--border)",
-    }}>
+    <div className="flex flex-col gap-3 border-b border-[var(--pe-border-faint)] bg-[var(--pe-bg-2)] px-3 py-2.5 pe-pop">
       {/* Header */}
-      <div style={{ 
-        display: "flex", 
-        justifyContent: "space-between", 
-        alignItems: "center",
-        marginBottom: "16px"
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <Database size={20} />
-          <h3 style={{ margin: 0, fontSize: "16px" }}>{t("rag.title")}</h3>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--pe-violet-strong)]">
+          <Database className="h-3.5 w-3.5" />
+          {t(lang, "ragTitle")}
         </div>
-        <button
-          onClick={onClose}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: "4px",
-            color: "var(--foreground)",
-          }}
-        >
-          <X size={18} />
-        </button>
+        <div className="flex items-center gap-2 text-[10px] text-[var(--pe-text-faint)]">
+          {stats && (
+            <span>
+              {stats.documentCount} {t(lang, "ragDocuments")} · {stats.chunkCount}{" "}
+              {t(lang, "ragChunks")}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            title={t(lang, "dismiss")}
+            className="rounded-md p-1 text-[var(--pe-text-muted)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
 
-      {/* Stats */}
-      {stats && (
-        <div style={{
-          display: "flex",
-          gap: "16px",
-          marginBottom: "16px",
-          padding: "8px",
-          backgroundColor: "var(--muted)",
-          borderRadius: "4px",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <FileText size={16} />
-            <span style={{ fontSize: "13px" }}>
-              {stats.documentCount} {t("rag.documents")}
-            </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <Database size={16} />
-            <span style={{ fontSize: "13px" }}>
-              {stats.chunkCount} {t("rag.chunks")}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Drop Zone */}
+      {/* Drop zone */}
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        style={{
-          border: `2px dashed ${isDragging ? "var(--accent)" : "var(--border)"}`,
-          borderRadius: "8px",
-          padding: "24px",
-          textAlign: "center",
-          backgroundColor: isDragging ? "var(--accent)/10" : "transparent",
-          transition: "all 0.2s",
-          marginBottom: "16px",
-        }}
+        className={`flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-4 py-4 text-center transition ${
+          isDragging
+            ? "border-[var(--pe-violet-strong)] bg-violet-400/10"
+            : "border-[var(--pe-border)] bg-[var(--pe-input)]"
+        }`}
       >
-        <Upload size={32} style={{ marginBottom: "8px", opacity: 0.7 }} />
-        <p style={{ margin: "0 0 4px", fontSize: "14px" }}>
-          {t("rag.dropFiles")}
-        </p>
-        <p style={{ margin: 0, fontSize: "12px", opacity: 0.7 }}>
-          {t("rag.supportedFormats")}
-        </p>
+        <Upload className={`h-5 w-5 ${isDragging ? "text-[var(--pe-violet-strong)]" : "text-[var(--pe-text-muted)]"}`} />
+        <div className="text-[11px] text-[var(--pe-text-soft)]">{t(lang, "ragDropFiles")}</div>
+        <div className="text-[10px] text-[var(--pe-text-faint)]">{t(lang, "ragSupportedFormats")}</div>
       </div>
 
-      {/* Query Form */}
-      <form onSubmit={handleQuery} style={{ marginBottom: "16px" }}>
-        <div style={{ display: "flex", gap: "8px" }}>
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("rag.queryPlaceholder")}
-            disabled={isLoading}
-            style={{
-              flex: 1,
-              padding: "8px 12px",
-              borderRadius: "4px",
-              border: "1px solid var(--border)",
-              backgroundColor: "var(--input)",
-              color: "var(--foreground)",
-            }}
-          />
-          <button
-            type="submit"
-            disabled={isLoading || !query.trim()}
-            style={{
-              padding: "8px 16px",
-              borderRadius: "4px",
-              border: "none",
-              backgroundColor: isLoading ? "var(--muted)" : "var(--accent)",
-              color: isLoading ? "var(--muted-foreground)" : "var(--accent-foreground)",
-              cursor: isLoading ? "not-allowed" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-            }}
-          >
-            {isLoading ? <Upload size={16} className="animate-spin" /> : <Search size={16} />}
-            {t("rag.search")}
-          </button>
-        </div>
+      {/* Query form */}
+      <form onSubmit={handleQuery} className="flex items-center gap-1.5">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t(lang, "ragQueryPlaceholder")}
+          disabled={isLoading}
+          className="min-w-0 flex-1 rounded-lg border border-[var(--pe-border)] bg-[var(--pe-input)] px-2.5 py-1.5 text-[11px] text-[var(--pe-text)] outline-none transition placeholder:text-[var(--pe-text-faint)] focus:border-violet-400/40 focus:ring-1 focus:ring-violet-400/20"
+        />
+        <button
+          type="submit"
+          disabled={isLoading || !query.trim()}
+          className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-violet-500/90 px-2.5 py-1.5 text-[11px] font-medium text-zinc-950 transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isLoading ? <Upload className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+          {t(lang, "ragSearch")}
+        </button>
+        {isLoading && (
+          <span className="shrink-0 text-[10px] text-[var(--pe-text-faint)]">
+            {t(lang, "ragProcessing")}
+          </span>
+        )}
       </form>
 
-      {/* Error Message */}
+      {/* Error */}
       {error && (
-        <div style={{
-          padding: "8px 12px",
-          backgroundColor: "var(--destructive)/10",
-          border: "1px solid var(--destructive)",
-          borderRadius: "4px",
-          color: "var(--destructive)",
-          fontSize: "13px",
-          marginBottom: "16px",
-        }}>
+        <div className="rounded-lg border border-rose-400/30 bg-rose-400/10 px-2.5 py-1.5 text-[11px] text-[var(--pe-rose-strong)]">
           {error}
         </div>
       )}
 
-      {/* Loading State */}
-      {isLoading && (
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "8px",
-          fontSize: "13px",
-          opacity: 0.7,
-        }}>
-          <Upload size={16} className="animate-spin" />
-          {t("rag.processing")}
+      {/* Results */}
+      {results.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <div className="text-[10px] font-medium uppercase tracking-wider text-[var(--pe-text-faint)]">
+            {lastQuery} · {results.length} {t(lang, "ragChunks")}
+          </div>
+          {results.map((result) => (
+            <div
+              key={result.chunkId}
+              className="rounded-lg border border-[var(--pe-border-soft)] bg-[var(--pe-input)] px-2.5 py-2"
+            >
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-[var(--pe-violet-strong)]">
+                  <FileText className="h-3 w-3 shrink-0" />
+                  <span className="truncate" title={result.documentPath}>
+                    {result.documentPath.split(/[\\/]/).pop()}
+                  </span>
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-[10px] text-[var(--pe-emerald-strong)]">
+                    {Math.round(result.similarity * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleRemoveDocument(result.documentPath)}
+                    title={t(lang, "deleteChat")}
+                    className="rounded p-0.5 text-[var(--pe-text-faint)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-rose-strong)]"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </span>
+              </div>
+              <div className="custom-scroll max-h-24 overflow-y-auto whitespace-pre-wrap break-words pr-1 font-mono text-[10px] leading-relaxed text-[var(--pe-text-soft)]">
+                {result.content}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
       {/* Info */}
-      <div style={{
-        fontSize: "11px",
-        opacity: 0.7,
-        marginTop: "16px",
-        paddingTop: "16px",
-        borderTop: "1px solid var(--border)",
-      }}>
-        {t("rag.info")}
-      </div>
+      <div className="text-[10px] leading-relaxed text-[var(--pe-text-faint)]">{t(lang, "ragInfo")}</div>
     </div>
   );
 }

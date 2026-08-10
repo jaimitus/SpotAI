@@ -904,7 +904,6 @@ export function SettingsModal({
                 <div className="grid grid-cols-3 gap-3 mt-3">
                   <Field
                     label={`${t(currentLang, "topP")} | ${(draft.topP ?? 0.9).toFixed(2)}`}
-                    hint="Nucleus sampling"
                   >
                     <input
                       type="range"
@@ -920,7 +919,6 @@ export function SettingsModal({
                   </Field>
                   <Field
                     label={`${t(currentLang, "topK")} | ${draft.topK ?? 40}`}
-                    hint="Top-K sampling"
                   >
                     <input
                       type="number"
@@ -936,7 +934,6 @@ export function SettingsModal({
                   </Field>
                   <Field
                     label={`${t(currentLang, "repeatPenalty")} | ${(draft.repeatPenalty ?? 1.1).toFixed(2)}`}
-                    hint="Repetition penalty"
                   >
                     <input
                       type="range"

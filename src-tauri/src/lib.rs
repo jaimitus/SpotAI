@@ -167,6 +167,8 @@ pub fn run() {
             commands::rag_query,
             commands::rag_get_stats,
             commands::rag_remove_document,
+            commands::analyze_command_safety,
+            commands::execute_shell_command,
         ])
         .setup(|app| {
             let shortcut_status = app.state::<commands::ShortcutRegistration>();

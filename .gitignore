@@ -1,74 +1,26 @@
-```
-# Dependencies
-node_modules/
-vendor/
-
-# Build artifacts
-target/
+# Node
+node_modules
+RELEASE_NOTES.md/
 dist/
-build/
-*.o
-*.obj
-*.a
-*.lib
-*.so
-*.dylib
-*.dll
+dist_release/
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.venv/
-.eggs/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-*.tmp
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
-# Tauri
+# Compiled Binaries & Bundles
+*.exe
+*.msi
+*.zip
+
+# Rust / Tauri
 src-tauri/target/
 
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Environment variables
-.env
-.env.local
-.env.*
-!.env.example
-
-# IDE
+# OS / IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-
-# Test and coverage
-coverage/
-htmlcov/
-.nyc_output/
-```
+.DS_Store
+*.log
+RELEASE_NOTES.md

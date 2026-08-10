@@ -837,7 +837,7 @@ pub async fn rag_remove_document(
 /// CLI Injection: Analyze command safety and generate shell command
 #[tauri::command]
 pub fn analyze_command_safety(command: String) -> Result<native_input::ShellCommand, String> {
-    let (safety_level, warnings) = native_input::SafetyLevel::analyze(&command);
+    let (safety_level, _warnings) = native_input::SafetyLevel::analyze(&command);
     
     // Determine shell and arguments based on command type
     let (shell, args, description) = if cfg!(target_os = "windows") {
