@@ -1,27 +1,28 @@
-## [v1.4.0] - 2026-08-10
+# Changelog
 
-### ✨ New Features
-- 📚 **RAG Local - Pregunta a tus Archivos**: Arrastra archivos (.pdf, .txt, .md, .rs, .py, .ts, .js, .json, .toml) al overlay para indexarlos en una BD vectorial local (sqlite-vec) y hacer QA sobre tu código o documentación con búsqueda semántica.
-- 🔍 **Embeddings Reales con Ollama**: El embedding usa el modelo local `nomic-embed-text` (384 dims) vía Ollama, con fallback determinista por hash cuando Ollama está offline.
-- 📄 **Soporte PDF**: `pdf-extract` extrae texto de documentos PDF para indexación RAG.
-- 💻 **CLI Injection (/exec)**: Slash command `/exec <comando>` que analiza la seguridad del comando ('safe' / 'caution' / 'dangerous'), pide confirmación en la UI y ejecuta PowerShell/CMD — los comandos destructivos se bloquean siempre en el backend.
-- 🔘 **Panel RAG Integrado**: Botón de base de datos en la barra superior (y `/rag`) para abrir el panel sin usar la paleta.
-- ⚙️ **Parámetros Avanzados de LLM**: Sliders de `top_p`, `top_k`, `repeat_penalty` y campos `num_ctx`/`num_predict` en Settings → General, ahora conectados de verdad al request (Ollama, OpenAI-compatible y Anthropic).
-- 🗂️ **Tipado CLI**: Nueva interfaz `ShellCommand` en types.ts con metadata de seguridad.
-- 🌍 **RAG i18n completo**: La funcionalidad RAG traducida en los 5 idiomas (EN/ES/DE/PT/FR).
+All notable changes to this project will be documented in this file.
 
-### 🧪 Tests
-- 🗄️ **RAG Rust Tests**: Roundtrip index → search → remove sobre una BD temporal (con fallback de embeddings, sin Ollama) y rechazo de formatos no soportados.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### 📚 Documentation
-- 📖 README actualizado con las nuevas características de la v1.4.0: RAG, embeddings reales, CLI injection y parámetros avanzados.
+> Auto-generated from git history with `npm run changelog:all`.
+
+## [v1.4.0] - 2026-08-11
+
+## 📚 Documentation
+
+- Release v1.4.0 with RAG Local, Real Embeddings, CLI Injection & Multilingual Voice
+- add CHANGELOG entry for v1.3.4
+
+## 📦 Other
+
+- feat(rag,cli): v1.4.0 - local RAG (sqlite-vec + Ollama embeddings), /exec CLI injection, advanced LLM sampling params
 
 ## [v1.3.4] - 2026-08-10
 
 ### ✨ New Features
 - 🎚️ **Recognition Language Setting**: Whisper now transcribes in the language you pin (**Auto / English / Español / Deutsch / Português / Français**) instead of relying on its unreliable auto-detection, which on the tiny model tends to assume English and produce nonsense on other languages. When nothing is pinned, the app defaults to your **interface language** automatically — a Spanish UI user gets Spanish dictation without touching Settings.
 - 📦 **Whisper Model Size Selector**: Choose **Tiny (~75 MB)**, **Base (~145 MB)** or **Small (~466 MB)** right in the download panel. Bigger models are noticeably more accurate on non-English speech. Switching only downloads the model you pick — the binary is shared and already-downloaded sizes switch instantly.
-
 ### 🧪 Tests
 - 🧩 New Rust tests cover the model-id resolution and the language→`-l` flag mapping; new E2E tests verify the engine/mic/language startup sync and the model-switch flow (an uninstalled model shows the download button, a downloaded one shows ready instantly).
 ### 📚 Documentation
