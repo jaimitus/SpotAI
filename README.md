@@ -61,8 +61,27 @@ Every version's changes — from v1.0.0 to the latest — live in the versioned 
 | `↑ / ↓` | Navigate prompt history |
 | `Ctrl + Enter` | Auto-insert the last response into the previous app |
 | `Ctrl + ,` | Open Settings Modal |
-| `/` + `↑/↓` + `Enter` | Open the command palette and apply a slash command |
+| `/` + `↑/↓` + `Enter` | Open the slash command palette and pick a command |
 | `Ctrl + V` (with a screenshot) | Attach an image as context for vision models |
+
+### / Commands (type and press Enter to run directly)
+
+| Command | Action |
+| :--- | :--- |
+| `/new` | Start a new conversation |
+| `/theme` | Toggle between dark / light theme |
+| `/capture` | Capture a screen region |
+| `/incognito` | Toggle incognito mode |
+| `/settings` | Open the settings modal |
+| `/hide` | Hide the window |
+| `/clear` | Clear the current conversation |
+| `/explain` | Explain selected code or text |
+| `/fix` | Fix a bug in selected code |
+| `/refactor` | Refactor selected code |
+| `/summarize` | Summarize selected text |
+| `/translate` | Translate the selected text |
+| `/improve` | Improve writing quality and tone |
+| `/comment` | Add clear inline documentation |
 
 ---
 
