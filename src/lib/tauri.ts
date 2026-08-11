@@ -519,6 +519,15 @@ export interface RagQueryResult {
   totalChunksSearched: number;
 }
 
+export interface RagDocument {
+  path: string;
+  name: string;
+  fileType: string;
+  size: number;
+  indexedAt: number;
+  chunkCount: number;
+}
+
 /** Index multiple files for RAG semantic search */
 export async function ragIndexFiles(filePaths: string[]): Promise<Record<string, number>> {
   return invoke<Record<string, number>>("rag_index_files", { filePaths });
@@ -532,6 +541,11 @@ export async function ragQuery(query: string, topK?: number): Promise<RagQueryRe
 /** Get statistics about indexed documents */
 export async function ragGetStats(): Promise<RagStats> {
   return invoke<RagStats>("rag_get_stats");
+}
+
+/** Get list of indexed documents */
+export async function ragGetDocuments(): Promise<RagDocument[]> {
+  return invoke<RagDocument[]>("rag_get_documents");
 }
 
 /** Remove a document from the RAG index */

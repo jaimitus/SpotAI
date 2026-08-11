@@ -87,6 +87,9 @@ import {
   setVoiceEngine,
   setVoiceLanguage,
   setWhisperModel,
+  ragGetStats,
+  ragGetDocuments,
+  ragQuery,
 } from "../lib/tauri";
 import type {
   ActionChipId,
@@ -246,6 +249,8 @@ export function SpotlightWindow() {
   const [transcribing, setTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [showRagPanel, setShowRagPanel] = useState(false);
+  const [ragDocumentCount, setRagDocumentCount] = useState<number>(0);
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
   // CLI injection (/exec): command awaiting confirmation plus its result.
   const [pendingCommand, setPendingCommand] = useState<ShellCommand | null>(null);
   const [execOutput, setExecOutput] = useState<string | null>(null);
@@ -369,6 +374,49 @@ export function SpotlightWindow() {
       // Command unavailable (non-Tauri); keep the current UI state.
     }
   }, []);
+
+  // Sync the RAG document count and suggested questions on mount and whenever
+  // the RAG index changes (a document was added/removed in the panel). The
+  // count gates the automatic document-context injection on submit.
+  const syncRagState = useCallback(() => {
+    Promise.all([
+      ragGetStats(),
+      ragGetDocuments().catch(() => [] as { path: string; name: string; size: number }[]),
+    ])
+      .then(([stats, docs]) => {
+        setRagDocumentCount(stats.documentCount);
+        // Generate suggested questions when documents are loaded.
+        if (docs.length > 0) {
+          const docNames = docs.slice(0, 3).map((d) => d.name.split(/[\\/]/).pop() || d.name);
+          const questions = [
+            t(currentLang, "ragSuggestSummary").replace("{doc}", docNames[0] ?? ""),
+            t(currentLang, "ragSuggestKeyPoints").replace("{doc}", docNames[0] ?? ""),
+            t(currentLang, "ragSuggestCompare")
+              .replace("{doc1}", docNames[0] ?? "")
+              .replace("{doc2}", docNames[1] ?? docNames[0] ?? ""),
+          ];
+          setSuggestedQuestions(questions.filter((q) => q));
+        } else {
+          setSuggestedQuestions([]);
+        }
+      })
+      .catch(() => undefined);
+  }, [currentLang]);
+
+  useEffect(() => {
+    let mounted = true;
+    const run = () => {
+      if (!mounted) return;
+      syncRagState();
+    };
+    run();
+    // Refresh when the RAG index changes (files dropped/removed in the panel).
+    window.addEventListener("spotai:rag-changed", run);
+    return () => {
+      mounted = false;
+      window.removeEventListener("spotai:rag-changed", run);
+    };
+  }, [syncRagState]);
 
   const recordPrompt = useCallback((value: string) => {
     const normalized = value.trim();
@@ -1343,6 +1391,37 @@ export function SpotlightWindow() {
       finalPrompt = buildActionPrompt("explain", undefined, currentLang);
     }
 
+    // Automatically query RAG if documents are indexed and user is asking a question
+    let ragContext = "";
+    if (ragDocumentCount > 0 && finalPrompt) {
+      try {
+        const ragResult = await ragQuery(finalPrompt, 5);
+        if (ragResult.results.length > 0) {
+          // Format results with citations [1], [2], etc.
+          const contextParts = ragResult.results.map((r, idx) => {
+            const fileName = r.documentPath.split(/[\\/]/).pop() ?? r.documentPath;
+            const lineInfo =
+              r.metadata.lineStart !== undefined
+                ? ` (lines ${r.metadata.lineStart}-${r.metadata.lineEnd ?? r.metadata.lineStart})`
+                : "";
+            return `[${idx + 1}] ${fileName}${lineInfo}:\n${r.content}`;
+          });
+          ragContext = contextParts.join("\n\n");
+        }
+      } catch {
+        // RAG query failed, continue without context
+        ragContext = "";
+      }
+    }
+
+    // Combine RAG context with clipboard context if both exist
+    let combinedContext = contextText || null;
+    if (ragContext && combinedContext) {
+      combinedContext = `${combinedContext}\n\n--- Document Context ---\n${ragContext}`;
+    } else if (ragContext) {
+      combinedContext = ragContext;
+    }
+
     const conversationAtSubmit = activeConversationIdRef.current;
     // Disarm any pending quick-action auto-insert immediately: only the submit
     // that started from the shortcut may insert, and it must not survive a chat
@@ -1356,7 +1435,7 @@ export function SpotlightWindow() {
       provider,
       model,
       prompt: finalPrompt,
-      contextText: contextText || null,
+      contextText: combinedContext,
       imageDataUrl: contextImage?.dataUrl ?? null,
       host: resolveHost(provider, settings),
       systemPrompt: settings.systemPrompt || null,
@@ -2055,6 +2134,28 @@ export function SpotlightWindow() {
             />
           )}
         </form>
+
+        {/* Suggested questions for RAG documents */}
+        {suggestedQuestions.length > 0 && !isStreaming && (
+          <div className="px-3 pb-2">
+            <div className="flex flex-wrap gap-2">
+              {suggestedQuestions.map((question, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setPromptValue(question);
+                    inputRef.current?.focus();
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--pe-border-soft)] bg-[var(--pe-bg-2)] px-3 py-1.5 text-[12px] text-[var(--pe-text-soft)] transition hover:border-cyan-400/40 hover:bg-cyan-400/10 hover:text-[var(--pe-accent-strong)]"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  {question}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Action chips + compact prompt history controls */}
         <div className="flex items-center gap-2 px-3 py-2.5">

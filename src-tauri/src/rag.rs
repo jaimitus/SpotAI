@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Once};
+use std::time::Duration;
 use text_splitter::{ChunkConfig, MarkdownSplitter, TextSplitter};
 use tokio::sync::RwLock;
 
@@ -107,6 +108,18 @@ pub struct RagQueryResult {
 #[serde(rename_all = "camelCase")]
 pub struct RagStats {
     pub document_count: usize,
+    pub chunk_count: usize,
+}
+
+/// A single indexed document, as listed by `get_documents`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RagDocument {
+    pub path: String,
+    pub name: String,
+    pub file_type: String,
+    pub size: u64,
+    pub indexed_at: i64,
     pub chunk_count: usize,
 }
 
@@ -237,6 +250,9 @@ impl RagState {
             .client
             .post(&url)
             .json(&request)
+            // Bounded wait: a hung Ollama must never stall prompt submissions
+            // (the hash fallback below takes over after the timeout).
+            .timeout(Duration::from_secs(4))
             .send()
             .await
             .map_err(|e| format!("Ollama request failed: {e}"))?;
@@ -638,6 +654,44 @@ impl RagState {
                 document_count: doc_count as usize,
                 chunk_count: chunk_count as usize,
             })
+        })
+    }
+
+    /// List every indexed document (path, file name, size, chunk count...).
+    /// Used by the spotlight to build suggested questions over the index.
+    pub async fn get_documents(&self) -> Result<Vec<RagDocument>, String> {
+        self.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT path, file_type, file_size, indexed_at, chunk_count
+                     FROM documents ORDER BY indexed_at DESC",
+                )
+                .map_err(|e| format!("Failed to prepare documents query: {e}"))?;
+
+            let rows = stmt
+                .query_map([], |row| {
+                    let path: String = row.get("path")?;
+                    let name = std::path::Path::new(&path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(&path)
+                        .to_string();
+                    Ok(RagDocument {
+                        path,
+                        name,
+                        file_type: row.get("file_type")?,
+                        size: row.get::<_, i64>("file_size")? as u64,
+                        indexed_at: row.get("indexed_at")?,
+                        chunk_count: row.get::<_, i64>("chunk_count")? as usize,
+                    })
+                })
+                .map_err(|e| format!("Failed to execute documents query: {e}"))?;
+
+            let mut documents = Vec::new();
+            for row in rows {
+                documents.push(row.map_err(|e| format!("Failed to read document: {e}"))?);
+            }
+            Ok(documents)
         })
     }
 

@@ -22,6 +22,7 @@ export function RagPanel({ lang, onClose }: RagPanelProps) {
   const [stats, setStats] = useState<RagStats | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [indexingProgress, setIndexingProgress] = useState<{current: number; total: number; fileName: string} | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<RagSearchResult[]>([]);
@@ -58,12 +59,22 @@ export function RagPanel({ lang, onClose }: RagPanelProps) {
         return;
       }
       setIsLoading(true);
+      setIndexingProgress({ current: 0, total: supported.length, fileName: t(lang, "ragAnalyzingStructure") });
       setError(null);
       try {
-        await ragIndexFiles(supported);
+        for (let i = 0; i < supported.length; i++) {
+          setIndexingProgress({ current: i, total: supported.length, fileName: supported[i].split(/[\\/]/).pop() ?? supported[i] });
+          await ragIndexFiles([supported[i]]);
+        }
+        setIndexingProgress({ current: supported.length, total: supported.length, fileName: t(lang, "ragReady") });
         setResults([]);
         loadStats();
+        // The spotlight syncs its document count / suggested questions from
+        // this event, so new indexes appear right away.
+        window.dispatchEvent(new CustomEvent("spotai:rag-changed"));
+        setTimeout(() => setIndexingProgress(null), 1500);
       } catch (err) {
+        setIndexingProgress(null);
         setError(err instanceof Error ? err.message : t(lang, "ragIndexError"));
       } finally {
         setIsLoading(false);
@@ -138,6 +149,7 @@ export function RagPanel({ lang, onClose }: RagPanelProps) {
         await ragRemoveDocument(docPath);
         setResults((current) => current.filter((r) => r.documentPath !== docPath));
         loadStats();
+        window.dispatchEvent(new CustomEvent("spotai:rag-changed"));
       } catch {
         // Keep the row; the failure is non-critical.
       }
@@ -180,12 +192,28 @@ export function RagPanel({ lang, onClose }: RagPanelProps) {
         className={`flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-4 py-4 text-center transition ${
           isDragging
             ? "border-[var(--pe-violet-strong)] bg-violet-400/10"
-            : "border-[var(--pe-border)] bg-[var(--pe-input)]"
+            : indexingProgress
+              ? "border-emerald-400/50 bg-emerald-400/10"
+              : "border-[var(--pe-border)] bg-[var(--pe-input)]"
         }`}
       >
-        <Upload className={`h-5 w-5 ${isDragging ? "text-[var(--pe-violet-strong)]" : "text-[var(--pe-text-muted)]"}`} />
-        <div className="text-[11px] text-[var(--pe-text-soft)]">{t(lang, "ragDropFiles")}</div>
-        <div className="text-[10px] text-[var(--pe-text-faint)]">{t(lang, "ragSupportedFormats")}</div>
+        {indexingProgress ? (
+          <>
+            <Upload className="h-5 w-5 animate-pulse text-emerald-400" />
+            <div className="text-[11px] font-medium text-emerald-400">
+              {t(lang, "ragIndexing")} {indexingProgress.current}/{indexingProgress.total}
+            </div>
+            <div className="text-[10px] text-emerald-400/80 truncate max-w-full">
+              {indexingProgress.fileName}
+            </div>
+          </>
+        ) : (
+          <>
+            <Upload className={`h-5 w-5 ${isDragging ? "text-[var(--pe-violet-strong)]" : "text-[var(--pe-text-muted)]"}`} />
+            <div className="text-[11px] text-[var(--pe-text-soft)]">{t(lang, "ragDropFiles")}</div>
+            <div className="text-[10px] text-[var(--pe-text-faint)]">{t(lang, "ragSupportedFormats")}</div>
+          </>
+        )}
       </div>
 
       {/* Query form */}

@@ -1,26 +1,12 @@
-# Node
-node_modules
-RELEASE_NOTES.md/
+```
+# Dependencies
+node_modules/
+
+# Build artifacts
 dist/
-dist_release/
+build/
+target/
 
-# Playwright
-/test-results/
-/playwright-report/
-/blob-report/
-/playwright/.cache/
-
-# Compiled Binaries & Bundles
-*.exe
-*.msi
-*.zip
-
-# Rust / Tauri
-src-tauri/target/
-
-# OS / IDE
-.vscode/
-.idea/
-.DS_Store
-*.log
-RELEASE_NOTES.md
+# Cache directories
+.vite/
+```test-results/
