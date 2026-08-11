@@ -87,6 +87,8 @@ import {
   setVoiceEngine,
   setVoiceLanguage,
   setWhisperModel,
+  ragGetStats,
+  ragGetContext,
 } from "../lib/tauri";
 import type {
   ActionChipId,
@@ -246,6 +248,7 @@ export function SpotlightWindow() {
   const [transcribing, setTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [showRagPanel, setShowRagPanel] = useState(false);
+  const [ragDocumentCount, setRagDocumentCount] = useState<number>(0);
   // CLI injection (/exec): command awaiting confirmation plus its result.
   const [pendingCommand, setPendingCommand] = useState<ShellCommand | null>(null);
   const [execOutput, setExecOutput] = useState<string | null>(null);
@@ -368,6 +371,15 @@ export function SpotlightWindow() {
     } catch {
       // Command unavailable (non-Tauri); keep the current UI state.
     }
+  }, []);
+
+  // Sync RAG document count on mount and when documents change
+  useEffect(() => {
+    let mounted = true;
+    void ragGetStats().then((stats) => {
+      if (mounted) setRagDocumentCount(stats.documentCount);
+    }).catch(() => undefined);
+    return () => { mounted = false; };
   }, []);
 
   const recordPrompt = useCallback((value: string) => {

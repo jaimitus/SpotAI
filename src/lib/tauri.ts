@@ -519,6 +519,20 @@ export interface RagQueryResult {
   totalChunksSearched: number;
 }
 
+/** Get relevant context from RAG for a given query */
+export async function ragGetContext(query: string, maxChunks?: number): Promise<string> {
+  const result = await ragQuery(query, maxChunks ?? 3);
+  if (result.results.length === 0) return "";
+  
+  // Format results into a coherent context string
+  const contextParts = result.results.map((r) => {
+    const fileName = r.documentPath.split(/[\\/]/).pop() ?? r.documentPath;
+    return `[From ${fileName}]:\n${r.content}`;
+  });
+  
+  return contextParts.join("\n\n");
+}
+
 /** Index multiple files for RAG semantic search */
 export async function ragIndexFiles(filePaths: string[]): Promise<Record<string, number>> {
   return invoke<Record<string, number>>("rag_index_files", { filePaths });
