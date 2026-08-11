@@ -69,6 +69,9 @@ export function RagPanel({ lang, onClose }: RagPanelProps) {
         setIndexingProgress({ current: supported.length, total: supported.length, fileName: t(lang, "ragReady") });
         setResults([]);
         loadStats();
+        // The spotlight syncs its document count / suggested questions from
+        // this event, so new indexes appear right away.
+        window.dispatchEvent(new CustomEvent("spotai:rag-changed"));
         setTimeout(() => setIndexingProgress(null), 1500);
       } catch (err) {
         setIndexingProgress(null);
@@ -146,6 +149,7 @@ export function RagPanel({ lang, onClose }: RagPanelProps) {
         await ragRemoveDocument(docPath);
         setResults((current) => current.filter((r) => r.documentPath !== docPath));
         loadStats();
+        window.dispatchEvent(new CustomEvent("spotai:rag-changed"));
       } catch {
         // Keep the row; the failure is non-critical.
       }

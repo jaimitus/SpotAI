@@ -825,6 +825,14 @@ pub async fn rag_get_stats(
     rag_state.get_stats().await
 }
 
+/// RAG: List every indexed document (used for suggested questions / badges)
+#[tauri::command]
+pub async fn rag_get_documents(
+    rag_state: tauri::State<'_, rag::RagState>,
+) -> Result<Vec<rag::RagDocument>, String> {
+    rag_state.get_documents().await
+}
+
 /// RAG: Remove a document from the index
 #[tauri::command]
 pub async fn rag_remove_document(

@@ -166,6 +166,7 @@ pub fn run() {
             commands::rag_index_files,
             commands::rag_query,
             commands::rag_get_stats,
+            commands::rag_get_documents,
             commands::rag_remove_document,
             commands::analyze_command_safety,
             commands::execute_shell_command,

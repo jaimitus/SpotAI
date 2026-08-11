@@ -88,7 +88,6 @@ import {
   setVoiceLanguage,
   setWhisperModel,
   ragGetStats,
-  ragGetContext,
   ragGetDocuments,
   ragQuery,
 } from "../lib/tauri";
@@ -251,7 +250,6 @@ export function SpotlightWindow() {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [showRagPanel, setShowRagPanel] = useState(false);
   const [ragDocumentCount, setRagDocumentCount] = useState<number>(0);
-  const [activeDocuments, setActiveDocuments] = useState<{ path: string; name: string; size: number }[]>([]);
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
   // CLI injection (/exec): command awaiting confirmation plus its result.
   const [pendingCommand, setPendingCommand] = useState<ShellCommand | null>(null);
@@ -377,36 +375,48 @@ export function SpotlightWindow() {
     }
   }, []);
 
-  // Sync RAG document count and active documents list on mount and when documents change
-  useEffect(() => {
-    let mounted = true;
+  // Sync the RAG document count and suggested questions on mount and whenever
+  // the RAG index changes (a document was added/removed in the panel). The
+  // count gates the automatic document-context injection on submit.
+  const syncRagState = useCallback(() => {
     Promise.all([
       ragGetStats(),
-      ragGetDocuments().catch(() => [] as any[]),
-    ]).then(([stats, docs]) => {
-      if (mounted) {
+      ragGetDocuments().catch(() => [] as { path: string; name: string; size: number }[]),
+    ])
+      .then(([stats, docs]) => {
         setRagDocumentCount(stats.documentCount);
-        setActiveDocuments(docs.map(d => ({
-          path: d.path,
-          name: d.name,
-          size: d.size,
-        })));
-        setShowRagPanel(stats.documentCount > 0 || docs.length > 0);
-        
-        // Generate suggested questions when documents are loaded
+        // Generate suggested questions when documents are loaded.
         if (docs.length > 0) {
-          const docNames = docs.slice(0, 3).map(d => d.name.split(/[\\/]/).pop() || d.name);
+          const docNames = docs.slice(0, 3).map((d) => d.name.split(/[\\/]/).pop() || d.name);
           const questions = [
-            t(currentLang, "ragSuggestSummary")?.replace("{doc}", docNames[0] ?? "") || `¿De qué trata ${docNames[0] ?? "el documento"}?`,
-            t(currentLang, "ragSuggestKeyPoints")?.replace("{doc}", docNames[0] ?? "") || `¿Cuáles son los puntos clave de ${docNames[0] ?? "este documento"}?`,
-            t(currentLang, "ragSuggestCompare")?.replace("{doc1}", docNames[0] ?? "").replace("{doc2}", docNames[1] ?? docNames[0] ?? "") || (docNames.length > 1 ? `¿Cómo se relacionan ${docNames[0]} y ${docNames[1]}?` : `¿Qué conclusiones puedo sacar de ${docNames[0]}?`),
+            t(currentLang, "ragSuggestSummary").replace("{doc}", docNames[0] ?? ""),
+            t(currentLang, "ragSuggestKeyPoints").replace("{doc}", docNames[0] ?? ""),
+            t(currentLang, "ragSuggestCompare")
+              .replace("{doc1}", docNames[0] ?? "")
+              .replace("{doc2}", docNames[1] ?? docNames[0] ?? ""),
           ];
-          setSuggestedQuestions(questions.filter(q => q));
+          setSuggestedQuestions(questions.filter((q) => q));
+        } else {
+          setSuggestedQuestions([]);
         }
-      }
-    }).catch(() => undefined);
-    return () => { mounted = false; };
-  }, []);
+      })
+      .catch(() => undefined);
+  }, [currentLang]);
+
+  useEffect(() => {
+    let mounted = true;
+    const run = () => {
+      if (!mounted) return;
+      syncRagState();
+    };
+    run();
+    // Refresh when the RAG index changes (files dropped/removed in the panel).
+    window.addEventListener("spotai:rag-changed", run);
+    return () => {
+      mounted = false;
+      window.removeEventListener("spotai:rag-changed", run);
+    };
+  }, [syncRagState]);
 
   const recordPrompt = useCallback((value: string) => {
     const normalized = value.trim();
@@ -1383,16 +1393,17 @@ export function SpotlightWindow() {
 
     // Automatically query RAG if documents are indexed and user is asking a question
     let ragContext = "";
-    let ragResults: import("../lib/tauri").RagSearchResult[] = [];
     if (ragDocumentCount > 0 && finalPrompt) {
       try {
         const ragResult = await ragQuery(finalPrompt, 5);
-        ragResults = ragResult.results;
         if (ragResult.results.length > 0) {
           // Format results with citations [1], [2], etc.
           const contextParts = ragResult.results.map((r, idx) => {
             const fileName = r.documentPath.split(/[\\/]/).pop() ?? r.documentPath;
-            const lineInfo = r.metadata.lineStart !== undefined ? ` (líneas ${r.metadata.lineStart}-${r.metadata.lineEnd ?? r.metadata.lineStart})` : "";
+            const lineInfo =
+              r.metadata.lineStart !== undefined
+                ? ` (lines ${r.metadata.lineStart}-${r.metadata.lineEnd ?? r.metadata.lineStart})`
+                : "";
             return `[${idx + 1}] ${fileName}${lineInfo}:\n${r.content}`;
           });
           ragContext = contextParts.join("\n\n");

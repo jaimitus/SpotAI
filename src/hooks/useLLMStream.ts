@@ -81,6 +81,7 @@ export function useLLMStream(): UseLLMStreamResult {
     const requestId = `${Date.now()}-${++sequenceRef.current}`;
     activeRequestRef.current = requestId;
     bufferRef.current = "";
+    tokenCountRef.current = 0;
     setResponse("");
     setError(null);
     setStatus("streaming");
@@ -126,6 +127,7 @@ export function useLLMStream(): UseLLMStreamResult {
   const reset = useCallback(() => {
     activeRequestRef.current = null;
     bufferRef.current = "";
+    tokenCountRef.current = 0;
     setResponse("");
     setError(null);
     setStatus("idle");
