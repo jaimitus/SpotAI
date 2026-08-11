@@ -1,7 +1,7 @@
 # SpotAI v1.4.1 🚀
 
 > **The ultra-fast, Raycast-inspired AI Spotlight launcher for Windows.**  
-> Access local LLMs (Ollama, LM Studio) or cloud models (OpenAI, Anthropic, OpenRouter, DeepSeek) anywhere with a single shortcut (`Alt + Space`). Now with **RAG Local**, **Advanced Voice Recognition**, **CLI Injection**, and **Real Embeddings**.
+> Access local LLMs (Ollama, LM Studio) or cloud models (OpenAI, Anthropic, OpenRouter, DeepSeek) anywhere with a single shortcut (`Alt + Space`). Now with **RAG Local**, **Advanced Voice Recognition**, **CLI Injection**, **Real Embeddings**, **Interactive Citations**, **Smart Suggestions**, **Immersive Reading Mode**, and **Conversation Export**.
 
 | Light theme | Dark theme |
 | :---: | :---: |
@@ -41,6 +41,12 @@ Every version's changes — from v1.0.0 to the latest — live in the versioned 
 - 💻 **CLI Injection (/exec)**: Generate smart PowerShell/CMD commands with a security confirmation step and direct terminal execution.
 - 🔍 **Real Embeddings**: Uses the `nomic-embed-text` model via Ollama for accurate semantic representations instead of hash-based fallbacks.
 - 📦 **Zero Heavy Dependencies**: Lightweight native Windows binary built with Tauri v2 and Rust.
+- ✨ **Interactive Citations**: AI responses include clickable references [1], [2] that show exact document excerpts when clicked, with automatic highlighting in the document viewer.
+- 💡 **Smart Question Suggestions**: Automatically generates relevant question chips based on uploaded documents to guide user interaction.
+- 📖 **Immersive Reading Mode**: Split-screen view with simultaneous document viewer and chat for enhanced study experience.
+- 📤 **Conversation Export**: Export complete chat history to Markdown format with citations, references, and document sources included.
+- 📊 **Active Documents Panel**: Visual management of indexed documents with real-time status, file details, and individual deletion controls.
+- ⏳ **Real-time Indexing Feedback**: Progress bars and clear status messages during document processing ("Analyzing structure...", "Extracting text...", "Ready to answer").
 
 ---
 
@@ -50,7 +56,7 @@ Speak instead of typing: hold **`Alt + V`** (or click the microphone button in t
 
 Two transcription engines are available in **Settings → General → Speech-to-text engine**:
 
-- 🪟 **Native (Windows SAPI)** — zero setup. Uses the Windows speech recognizer in live dictation mode with short silence timeouts for instant results.
+- 🪶 **Native (Windows SAPI)** — zero setup. Uses the Windows speech recognizer in live dictation mode with short silence timeouts for instant results.
 - 🧠 **Whisper (whisper.cpp)** — more accurate and multilingual (en/es/de/pt/fr). The first time you pick it, a download (binary + model) is offered from Settings; afterwards everything runs **locally and offline**. You can choose the **model size** (Tiny / Base / Small) and the **recognition language** — see *Tuning Whisper* below. Recordings are also saved as WAV so the Whisper engine can transcribe them.
 
 ### The Whisper install panel (3 phases)
