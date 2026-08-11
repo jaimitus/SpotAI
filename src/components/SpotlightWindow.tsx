@@ -89,6 +89,8 @@ import {
   setWhisperModel,
   ragGetStats,
   ragGetContext,
+  ragGetDocuments,
+  ragQuery,
 } from "../lib/tauri";
 import type {
   ActionChipId,
@@ -249,6 +251,8 @@ export function SpotlightWindow() {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [showRagPanel, setShowRagPanel] = useState(false);
   const [ragDocumentCount, setRagDocumentCount] = useState<number>(0);
+  const [activeDocuments, setActiveDocuments] = useState<{ path: string; name: string; size: number }[]>([]);
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
   // CLI injection (/exec): command awaiting confirmation plus its result.
   const [pendingCommand, setPendingCommand] = useState<ShellCommand | null>(null);
   const [execOutput, setExecOutput] = useState<string | null>(null);
@@ -373,11 +377,33 @@ export function SpotlightWindow() {
     }
   }, []);
 
-  // Sync RAG document count on mount and when documents change
+  // Sync RAG document count and active documents list on mount and when documents change
   useEffect(() => {
     let mounted = true;
-    void ragGetStats().then((stats) => {
-      if (mounted) setRagDocumentCount(stats.documentCount);
+    Promise.all([
+      ragGetStats(),
+      ragGetDocuments().catch(() => [] as any[]),
+    ]).then(([stats, docs]) => {
+      if (mounted) {
+        setRagDocumentCount(stats.documentCount);
+        setActiveDocuments(docs.map(d => ({
+          path: d.path,
+          name: d.name,
+          size: d.size,
+        })));
+        setShowRagPanel(stats.documentCount > 0 || docs.length > 0);
+        
+        // Generate suggested questions when documents are loaded
+        if (docs.length > 0) {
+          const docNames = docs.slice(0, 3).map(d => d.name.split(/[\\/]/).pop() || d.name);
+          const questions = [
+            t(currentLang, "ragSuggestSummary")?.replace("{doc}", docNames[0] ?? "") || `¿De qué trata ${docNames[0] ?? "el documento"}?`,
+            t(currentLang, "ragSuggestKeyPoints")?.replace("{doc}", docNames[0] ?? "") || `¿Cuáles son los puntos clave de ${docNames[0] ?? "este documento"}?`,
+            t(currentLang, "ragSuggestCompare")?.replace("{doc1}", docNames[0] ?? "").replace("{doc2}", docNames[1] ?? docNames[0] ?? "") || (docNames.length > 1 ? `¿Cómo se relacionan ${docNames[0]} y ${docNames[1]}?` : `¿Qué conclusiones puedo sacar de ${docNames[0]}?`),
+          ];
+          setSuggestedQuestions(questions.filter(q => q));
+        }
+      }
     }).catch(() => undefined);
     return () => { mounted = false; };
   }, []);
@@ -1357,9 +1383,20 @@ export function SpotlightWindow() {
 
     // Automatically query RAG if documents are indexed and user is asking a question
     let ragContext = "";
+    let ragResults: import("../lib/tauri").RagSearchResult[] = [];
     if (ragDocumentCount > 0 && finalPrompt) {
       try {
-        ragContext = await ragGetContext(finalPrompt, 5);
+        const ragResult = await ragQuery(finalPrompt, 5);
+        ragResults = ragResult.results;
+        if (ragResult.results.length > 0) {
+          // Format results with citations [1], [2], etc.
+          const contextParts = ragResult.results.map((r, idx) => {
+            const fileName = r.documentPath.split(/[\\/]/).pop() ?? r.documentPath;
+            const lineInfo = r.metadata.lineStart !== undefined ? ` (líneas ${r.metadata.lineStart}-${r.metadata.lineEnd ?? r.metadata.lineStart})` : "";
+            return `[${idx + 1}] ${fileName}${lineInfo}:\n${r.content}`;
+          });
+          ragContext = contextParts.join("\n\n");
+        }
       } catch {
         // RAG query failed, continue without context
         ragContext = "";
@@ -2086,6 +2123,28 @@ export function SpotlightWindow() {
             />
           )}
         </form>
+
+        {/* Suggested questions for RAG documents */}
+        {suggestedQuestions.length > 0 && !isStreaming && (
+          <div className="px-3 pb-2">
+            <div className="flex flex-wrap gap-2">
+              {suggestedQuestions.map((question, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setPromptValue(question);
+                    inputRef.current?.focus();
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--pe-border-soft)] bg-[var(--pe-bg-2)] px-3 py-1.5 text-[12px] text-[var(--pe-text-soft)] transition hover:border-cyan-400/40 hover:bg-cyan-400/10 hover:text-[var(--pe-accent-strong)]"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  {question}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Action chips + compact prompt history controls */}
         <div className="flex items-center gap-2 px-3 py-2.5">

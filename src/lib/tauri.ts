@@ -519,6 +519,14 @@ export interface RagQueryResult {
   totalChunksSearched: number;
 }
 
+export interface RagDocument {
+  path: string;
+  name: string;
+  size: number;
+  indexedAt: number;
+  chunkCount: number;
+}
+
 /** Get relevant context from RAG for a given query */
 export async function ragGetContext(query: string, maxChunks?: number): Promise<string> {
   const result = await ragQuery(query, maxChunks ?? 3);
@@ -546,6 +554,11 @@ export async function ragQuery(query: string, topK?: number): Promise<RagQueryRe
 /** Get statistics about indexed documents */
 export async function ragGetStats(): Promise<RagStats> {
   return invoke<RagStats>("rag_get_stats");
+}
+
+/** Get list of indexed documents */
+export async function ragGetDocuments(): Promise<RagDocument[]> {
+  return invoke<RagDocument[]>("rag_get_documents");
 }
 
 /** Remove a document from the RAG index */

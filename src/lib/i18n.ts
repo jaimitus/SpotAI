@@ -318,6 +318,9 @@ export const translations = {
     ragFromDocument: "From {0}",
     ragNoDocumentsIndexed: "No documents indexed yet",
     ragDocumentAdded: "Document added",
+    ragSuggestSummary: "What is {doc} about?",
+    ragSuggestKeyPoints: "What are the key points of {doc}?",
+    ragSuggestCompare: "How do {doc1} and {doc2} relate?",
     ragContextBadge: "Using {0} document(s)",
   },
   es: {
@@ -636,6 +639,9 @@ export const translations = {
     ragFromDocument: "De {0}",
     ragNoDocumentsIndexed: "Aún no hay documentos indexados",
     ragDocumentAdded: "Documento agregado",
+    ragSuggestSummary: "¿De qué trata {doc}?",
+    ragSuggestKeyPoints: "¿Cuáles son los puntos clave de {doc}?",
+    ragSuggestCompare: "¿Cómo se relacionan {doc1} y {doc2}?",
     ragContextBadge: "Usando {0} documento(s)",
   },
   de: {
@@ -959,6 +965,9 @@ export const translations = {
     ragFromDocument: "Aus {0}",
     ragNoDocumentsIndexed: "Noch keine Dokumente indexiert",
     ragDocumentAdded: "Dokument hinzugefügt",
+    ragSuggestSummary: "Worum geht es in {doc}?",
+    ragSuggestKeyPoints: "Was sind die wichtigsten Punkte von {doc}?",
+    ragSuggestCompare: "Wie hängen {doc1} und {doc2} zusammen?",
     ragContextBadge: "Verwende {0} Dokument(e)",
   },
   pt: {
@@ -1293,6 +1302,9 @@ export const translations = {
     ragFromDocument: "De {0}",
     ragNoDocumentsIndexed: "Ainda não há documentos indexados",
     ragDocumentAdded: "Documento adicionado",
+    ragSuggestSummary: "Sobre o que é {doc}?",
+    ragSuggestKeyPoints: "Quais são os pontos principais de {doc}?",
+    ragSuggestCompare: "Como {doc1} e {doc2} se relacionam?",
     ragContextBadge: "Usando {0} documento(s)",
   },
   fr: {
@@ -1628,6 +1640,9 @@ export const translations = {
     ragFromDocument: "De {0}",
     ragNoDocumentsIndexed: "Aucun document indexé pour le moment",
     ragDocumentAdded: "Document ajouté",
+    ragSuggestSummary: "De quoi parle {doc} ?",
+    ragSuggestKeyPoints: "Quels sont les points clés de {doc} ?",
+    ragSuggestCompare: "Comment {doc1} et {doc2} sont-ils liés ?",
     ragContextBadge: "Utilisant {0} document(s)",
   },
 } as const;
