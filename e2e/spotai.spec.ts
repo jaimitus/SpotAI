@@ -107,11 +107,17 @@ function buildTauriMock(
       similarity: number;
       metadata: { fileType: string; fileSize: number; createdAt: number; lineStart?: number; lineEnd?: number };
     }>;
+    // When set, send_prompt_stream does NOT resolve: the test drives the
+    // stream by dispatching llm-token events and releasing it via
+    // window.__releaseStream(). The request id is captured in
+    // window.__lastPromptRequestId.
+    holdStream?: boolean;
   } = {},
 ): string {
   const startError = JSON.stringify(opts.startError ?? null);
   const stopError = JSON.stringify(opts.stopError ?? null);
   const ragResults = JSON.stringify(opts.ragResults ?? []);
+  const holdStream = Boolean(opts.holdStream);
   const hasModel = opts.ragResults ? "true" : "false";
   return `
 (() => {
@@ -243,8 +249,16 @@ function buildTauriMock(
           return { documentCount: 1, chunkCount: 2 };
         case "suggest_document_actions":
           // Mirror the Rust backend: the model reads the indexed chunks and
-          // returns suggested questions/actions. Alternates between two sets so
-          // tests can verify the regenerate button produces a fresh list.
+          // returns suggested questions/actions. When a document is selected in
+          // the RAG panel the suggestions are scoped to that file; otherwise
+          // they alternate between two sets so the regenerate button can be
+          // verified to produce a fresh list.
+          if (args.documentPath && String(args.documentPath).includes("manual.md")) {
+            return [
+              { kind: "question", text: "How do I index files in manual.md?" },
+              { kind: "action", text: "Summarize manual.md" },
+            ];
+          }
           suggestionBatch += 1;
           return suggestionBatch % 2 === 1
             ? [
@@ -278,8 +292,28 @@ function buildTauriMock(
             totalChunksSearched: ${ragResults}.length,
           };
         case "send_prompt_stream":
-          // Resolve immediately so a submitted prompt completes the turn
-          // without an actual model behind it.
+          if (${holdStream}) {
+            // Capture the request id so tests can dispatch llm-token events
+            // (including reasoning) and hold the turn open until released.
+            window.__lastPromptRequestId = args.requestId;
+            return new Promise((resolve) => {
+              window.__releaseStream = () => resolve(null);
+            });
+          }
+          // Resolve immediately with a simulated reply so the turn completes
+          // with a real assistant response (the backend streams llm-token
+          // events from a background task; here we emit them synchronously
+          // before the call resolves).
+          {
+            const rid = args.requestId;
+            const emit = (payload) => {
+              (listeners.get("llm-token") || []).forEach((cb) =>
+                cb({ payload: { requestId: rid, ...payload } }),
+              );
+            };
+            emit({ token: "Simulated reply.", reasoning: null, done: false, cancelled: false, error: null });
+            emit({ token: "", reasoning: null, done: true, cancelled: false, error: null });
+          }
           return null;
         case "open_external_url":
           // Record the requested target so tests can assert the citation click
@@ -909,6 +943,393 @@ test("AI suggestions render questions and actions and clicking one fills the pro
   // The suggestion section hides while the ask is in flight.
   await expect(
     page.getByText("Suggested with your documents", { exact: true }),
+  ).not.toBeVisible();
+});
+
+test("selecting a document in the RAG panel regenerates scoped suggestions", async ({
+  page,
+}) => {
+  // One indexed document + a local model, same as the suggestions test.
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "spotai.settings.v1",
+      JSON.stringify({ defaultProvider: "ollama", defaultModel: "llama3" }),
+    );
+  });
+  await page.addInitScript(
+    buildTauriMock("native", {
+      ragResults: [
+        {
+          chunkId: "c1",
+          documentPath: "C:\\docs\\manual.md",
+          content: "SpotAI indexes local files",
+          similarity: 0.91,
+          metadata: { fileType: "md", fileSize: 42, createdAt: 0 },
+        },
+      ],
+    }),
+  );
+  await page.goto("/");
+
+  // Initial suggestions cover all documents.
+  await expect(
+    page.getByText("Suggested with your documents", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "What is manual.md about?" }),
+  ).toBeVisible();
+
+  // Open the RAG panel and select the indexed document (the row shows the
+  // file name plus its chunk count: "manual.md 2").
+  await page.getByTitle("Ask your files").click();
+  await page.getByRole("button", { name: "manual.md 2" }).click();
+
+  // The suggestions regenerate scoped to that document, no reload needed.
+  await expect(
+    page.getByRole("button", { name: "How do I index files in manual.md?" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "What is manual.md about?" }),
+  ).not.toBeVisible();
+
+  // Clicking the document again deselects it: the scoped suggestion is gone
+  // and the section is back to covering all documents.
+  await page.getByRole("button", { name: "manual.md 2" }).click();
+  await expect(
+    page.getByRole("button", { name: "How do I index files in manual.md?" }),
+  ).not.toBeVisible();
+  await expect(
+    page.getByText("Suggested with your documents", { exact: true }),
+  ).toBeVisible();
+});
+
+test("thinking models show a Thinking indicator until the answer arrives", async ({
+  page,
+}) => {
+  // Local model so the prompt can be submitted; the stream is held open so the
+  // test can drive reasoning/content tokens deterministically.
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "spotai.settings.v1",
+      JSON.stringify({ defaultProvider: "ollama", defaultModel: "llama3" }),
+    );
+  });
+  // ragResults makes the mock report a local model (hasModel) so the prompt
+  // can actually be submitted; holdStream keeps the turn open so the test can
+  // drive reasoning/content tokens deterministically.
+  await page.addInitScript(
+    buildTauriMock("native", {
+      holdStream: true,
+      ragResults: [
+        {
+          chunkId: "c1",
+          documentPath: "C:\\docs\\manual.md",
+          content: "SpotAI indexes local files",
+          similarity: 0.91,
+          metadata: { fileType: "md", fileSize: 42, createdAt: 0 },
+        },
+      ],
+    }),
+  );
+  await page.goto("/");
+
+  await page.locator("textarea").first().fill("reason about something");
+  await page.keyboard.press("Enter");
+
+  // The stream is held: wait until the backend captured the request id.
+  await page.waitForFunction(() => {
+    const w = window as unknown as { __lastPromptRequestId?: string };
+    return typeof w.__lastPromptRequestId === "string" && w.__lastPromptRequestId.length > 0;
+  });
+  const requestId = await page.evaluate(
+    () => (window as unknown as { __lastPromptRequestId?: string }).__lastPromptRequestId,
+  );
+
+  // Reasoning tokens arrive first: the UI must show the Thinking indicator and
+  // NOT treat them as part of the answer.
+  await page.evaluate((rid) => {
+    window.__tauriEmit("llm-token", {
+      requestId: rid,
+      token: "",
+      reasoning: "Let me think about this carefully...",
+      done: false,
+      cancelled: false,
+      error: null,
+    });
+    window.__tauriEmit("llm-token", {
+      requestId: rid,
+      token: "",
+      reasoning: "First, decompose the problem.",
+      done: false,
+      cancelled: false,
+      error: null,
+    });
+  }, requestId);
+
+  // The Thinking label now shows in both the toolbar and the empty answer
+  // area while reasoning: assert at least one is visible.
+  await expect(page.getByText("Thinking…", { exact: true }).first()).toBeVisible();
+
+  // The reasoning text must never leak into the rendered answer.
+  await expect(page.getByText(/Let me think about this carefully/)).not.toBeVisible();
+
+  // Answer content arrives: the indicator goes away and the response shows.
+  await page.evaluate((rid) => {
+    window.__tauriEmit("llm-token", {
+      requestId: rid,
+      token: "Here is the answer.",
+      reasoning: null,
+      done: false,
+      cancelled: false,
+      error: null,
+    });
+    window.__tauriEmit("llm-token", {
+      requestId: rid,
+      token: "",
+      reasoning: null,
+      done: true,
+      cancelled: false,
+      error: null,
+    });
+    window.__releaseStream();
+  }, requestId);
+
+  await expect(page.getByText("Thinking…", { exact: true })).not.toBeVisible();
+  await expect(page.getByText("Here is the answer.")).toBeVisible();
+
+  // The collapsible reasoning viewer is available once the run finished, and
+  // expands to show the model's thinking (collapsed by default).
+  const reasoningToggle = page.getByRole("button", { name: "View reasoning" });
+  await expect(reasoningToggle).toBeVisible();
+  await expect(page.getByText(/Let me think about this carefully/)).not.toBeVisible();
+  await reasoningToggle.click();
+  await expect(page.getByText(/Let me think about this carefully/)).toBeVisible();
+  await page.getByRole("button", { name: "Hide reasoning" }).click();
+  await expect(page.getByText(/Let me think about this carefully/)).not.toBeVisible();
+});
+
+test("clicking an action chip sends the prompt immediately without Enter", async ({
+  page,
+}) => {
+  // A local model so the prompt can actually be submitted: same seed as the
+  // badge test (ragResults forces hasModel=true in the mock).
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "spotai.settings.v1",
+      JSON.stringify({ defaultProvider: "ollama", defaultModel: "llama3" }),
+    );
+  });
+  await page.addInitScript(
+    buildTauriMock("native", {
+      ragResults: [
+        {
+          chunkId: "c1",
+          documentPath: "C:\\docs\\manual.md",
+          content: "SpotAI indexes local files",
+          similarity: 0.91,
+          metadata: { fileType: "md", fileSize: 42, createdAt: 0 },
+        },
+      ],
+    }),
+  );
+  await page.goto("/");
+
+  // The built-in "Explain" chip executes on selection: no Enter or send
+  // arrow needed. The conversation shows the template was submitted.
+  await page.getByRole("button", { name: "Explain", exact: true }).click();
+  const explainPrompt =
+    "Explain the following thoroughly in clear English. Cover what it does, how it works, and any pitfalls. Use concise technical language.";
+  // The prompt appears both in the textarea and as the user bubble in the
+  // conversation; either one proves the direct send happened.
+  await expect(page.getByText(explainPrompt, { exact: true }).first()).toBeVisible();
+});
+
+test("selecting a prompt template in the slash palette sends it immediately", async ({
+  page,
+}) => {
+  // A local model plus a user-defined template, seeded like the badge test
+  // (ragResults forces hasModel=true so the submit is not blocked).
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "spotai.settings.v1",
+      JSON.stringify({
+        defaultProvider: "ollama",
+        defaultModel: "llama3",
+        promptTemplates: [
+          { id: "t1", label: "My custom template", prompt: "Draft a release note." },
+        ],
+      }),
+    );
+  });
+  await page.addInitScript(
+    buildTauriMock("native", {
+      ragResults: [
+        {
+          chunkId: "c1",
+          documentPath: "C:\\docs\\manual.md",
+          content: "SpotAI indexes local files",
+          similarity: 0.91,
+          metadata: { fileType: "md", fileSize: 42, createdAt: 0 },
+        },
+      ],
+    }),
+  );
+  await page.goto("/");
+
+  // Open the slash palette and pick the template: it executes immediately,
+  // no Enter or send arrow needed (the palette clears the input afterwards).
+  await page.getByPlaceholder("Ask anything...").fill("/");
+  await page.getByRole("button", { name: "My custom template" }).click();
+  await expect(page.getByText("Draft a release note.", { exact: true })).toBeVisible();
+});
+
+test("the send button becomes a stop control while the model streams", async ({
+  page,
+}) => {
+  // Local model + a held stream so the turn stays in the streaming state.
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "spotai.settings.v1",
+      JSON.stringify({ defaultProvider: "ollama", defaultModel: "llama3" }),
+    );
+  });
+  await page.addInitScript(
+    buildTauriMock("native", {
+      ragResults: [
+        {
+          chunkId: "c1",
+          documentPath: "C:\\docs\\manual.md",
+          content: "SpotAI indexes local files",
+          similarity: 0.91,
+          metadata: { fileType: "md", fileSize: 42, createdAt: 0 },
+        },
+      ],
+      holdStream: true,
+    }),
+  );
+  await page.goto("/");
+
+  await page.getByPlaceholder("Ask anything...").fill("Tell me a story");
+  await page.keyboard.press("Enter");
+
+  // While streaming the input button turns into an actionable stop control.
+  const stopButton = page.getByRole("button", { name: "Stop generating" });
+  await expect(stopButton).toBeVisible();
+
+  // Stopping clears the streaming state and restores the send affordance.
+  await stopButton.click();
+  await page.evaluate(() => window.__releaseStream());
+  await expect(
+    page.getByRole("button", { name: "Stop generating" }),
+  ).not.toBeVisible();
+});
+
+test("a failed turn offers Retry which re-runs the last question", async ({ page }) => {
+  // Local model + a held stream so the test controls when the failure lands.
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "spotai.settings.v1",
+      JSON.stringify({ defaultProvider: "ollama", defaultModel: "llama3" }),
+    );
+  });
+  await page.addInitScript(
+    buildTauriMock("native", {
+      ragResults: [
+        {
+          chunkId: "c1",
+          documentPath: "C:\\docs\\manual.md",
+          content: "SpotAI indexes local files",
+          similarity: 0.91,
+          metadata: { fileType: "md", fileSize: 42, createdAt: 0 },
+        },
+      ],
+      holdStream: true,
+    }),
+  );
+  await page.goto("/");
+
+  await page.getByPlaceholder("Ask anything...").fill("Why is the sky blue?");
+  await page.keyboard.press("Enter");
+
+  // Fail the held stream with an error token (the pattern the thinking test
+  // uses to drive llm-token events) and release it so the turn resolves.
+  await page.waitForFunction(() => Boolean((window as unknown as { __lastPromptRequestId?: string }).__lastPromptRequestId));
+  await page.evaluate(() => {
+    const rid = (window as unknown as { __lastPromptRequestId: string }).__lastPromptRequestId;
+    (window as unknown as { __tauriEmit: (event: string, payload: unknown) => void }).__tauriEmit("llm-token", {
+      requestId: rid,
+      token: "",
+      reasoning: null,
+      done: false,
+      cancelled: false,
+      error: "Model exploded",
+    });
+    (window as unknown as { __releaseStream: () => void }).__releaseStream();
+  });
+
+  // The failure surfaces the error and an explicit Retry action.
+  await expect(page.getByText("Model exploded")).toBeVisible();
+  const retry = page.getByRole("button", { name: "Retry" });
+  await expect(retry).toBeVisible();
+
+  // Retrying re-runs the same question (it fails again, but the question is
+  // submitted once more: it shows in the textarea and as the user bubble).
+  await retry.click();
+  await expect(
+    page.getByText("Why is the sky blue?", { exact: true }).first(),
+  ).toBeVisible();
+});
+
+test("captured context with an empty prompt shows the ask-about-selection CTA", async ({
+  page,
+}) => {
+  // Local model so the prompt can be submitted (ragResults forces hasModel).
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "spotai.settings.v1",
+      JSON.stringify({ defaultProvider: "ollama", defaultModel: "llama3" }),
+    );
+  });
+  await page.addInitScript(
+    buildTauriMock("native", {
+      ragResults: [
+        {
+          chunkId: "c1",
+          documentPath: "C:\\docs\\manual.md",
+          content: "SpotAI indexes local files",
+          similarity: 0.91,
+          metadata: { fileType: "md", fileSize: 42, createdAt: 0 },
+        },
+      ],
+    }),
+  );
+  await page.goto("/");
+
+  // Seed captured context the way the backend does when the overlay opens
+  // with a selection copied: the context-captured event fires with the text.
+  // The listener registers in a mount effect, so give it a beat first.
+  await page.waitForTimeout(200);
+  await page.evaluate(() => {
+    (window as unknown as { __tauriEmit: (event: string, payload: unknown) => void }).__tauriEmit(
+      "context-captured",
+      "Refactor this function",
+    );
+  });
+
+  // The call-to-action appears: the hint pill and the glowing send button.
+  await expect(
+    page.getByText("Ask about this selection", { exact: true }),
+  ).toBeVisible();
+  const ctaSend = page.getByRole("button", { name: "Ask about this selection" });
+  await expect(ctaSend).toBeVisible();
+
+  // Typing a prompt dismisses the CTA (the user is already engaged). With
+  // captured context the placeholder switches to the context-aware hint.
+  await page
+    .getByPlaceholder("Ask anything about the captured text or choose an action below")
+    .fill("Explain this");
+  await expect(
+    page.getByText("Ask about this selection", { exact: true }),
   ).not.toBeVisible();
 });
 

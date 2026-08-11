@@ -47,6 +47,10 @@ export interface PromptRequest {
 export interface TokenEvent {
   requestId: string;
   token: string;
+  /** When present, this event carries a reasoning/thinking token (the model is
+   *  still working): the UI shows a "Thinking…" indicator instead of treating
+   *  it as part of the answer. */
+  reasoning?: string | null;
   done: boolean;
   cancelled: boolean;
   error?: string | null;

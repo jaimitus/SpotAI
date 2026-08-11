@@ -263,6 +263,10 @@ pub struct PromptRequest {
 pub struct TokenEvent {
     pub request_id: String,
     pub token: String,
+    /// When `Some`, this event carries a reasoning/thinking token (the model is
+    /// still working through its answer): `token` stays empty and the UI shows
+    /// a "Thinking…" indicator instead of treating it as response content.
+    pub reasoning: Option<String>,
     pub done: bool,
     pub cancelled: bool,
     pub error: Option<String>,
@@ -358,6 +362,31 @@ fn emit_token(app: &AppHandle, request_id: &str, token: &str, cancel: &StreamCan
         TokenEvent {
             request_id: request_id.into(),
             token: token.into(),
+            reasoning: None,
+            done: false,
+            cancelled: false,
+            error: None,
+        },
+    );
+}
+
+/// Emits a reasoning/thinking token (models with thinking enabled, e.g.
+/// DeepSeek R1, Qwen3, OpenAI o-series or Anthropic thinking blocks). The
+/// token is delivered separately from the answer so the UI can show a
+/// "Thinking…" indicator without mixing reasoning into the response.
+fn emit_reasoning(app: &AppHandle, request_id: &str, token: &str, cancel: &StreamCancel) {
+    if token.is_empty() {
+        return;
+    }
+    // Reasoning counts as delivered progress too: if the connection drops
+    // mid-reasoning, the retry policy must not restart the whole stream.
+    cancel.note_emitted(token.len());
+    let _ = app.emit(
+        "llm-token",
+        TokenEvent {
+            request_id: request_id.into(),
+            token: String::new(),
+            reasoning: Some(token.into()),
             done: false,
             cancelled: false,
             error: None,
@@ -376,6 +405,7 @@ fn emit_finished(
         TokenEvent {
             request_id: request_id.into(),
             token: String::new(),
+            reasoning: None,
             done: true,
             cancelled,
             error,
@@ -570,6 +600,14 @@ async fn stream_ollama(
             if let Some(error) = value.get("error").and_then(Value::as_str) {
                 return Err(ProviderError::Other(error.into()));
             }
+            // Thinking models (qwen3, deepseek-r1, …) stream their reasoning in
+            // `message.reasoning_content` on newer Ollama versions.
+            if let Some(reasoning) = value
+                .pointer("/message/reasoning_content")
+                .and_then(Value::as_str)
+            {
+                emit_reasoning(app, &request.request_id, reasoning, cancel);
+            }
             if let Some(content) = value.pointer("/message/content").and_then(Value::as_str) {
                 emit_token(app, &request.request_id, content, cancel);
             }
@@ -734,6 +772,16 @@ async fn parse_openai_sse(
             if let Some(error) = value.pointer("/error/message").and_then(Value::as_str) {
                 return Err(ProviderError::Other(error.into()));
             }
+            // Thinking models (DeepSeek R1, Qwen3, OpenAI o-series, …) emit
+            // their reasoning in `reasoning_content` before the real answer;
+            // some OpenAI-compatible gateways use `delta.reasoning` instead.
+            if let Some(reasoning) = value
+                .pointer("/choices/0/delta/reasoning_content")
+                .and_then(Value::as_str)
+                .or_else(|| value.pointer("/choices/0/delta/reasoning").and_then(Value::as_str))
+            {
+                emit_reasoning(app, &request.request_id, reasoning, cancel);
+            }
             if let Some(content) = value
                 .pointer("/choices/0/delta/content")
                 .and_then(Value::as_str)
@@ -832,6 +880,14 @@ async fn stream_anthropic(
             let value: Value = serde_json::from_str(data)?;
             match value.get("type").and_then(Value::as_str).unwrap_or_default() {
                 "content_block_delta" => {
+                    // Extended thinking: the model's internal reasoning arrives
+                    // as `delta.thinking` before the text answer.
+                    if let Some(thinking) = value
+                        .pointer("/delta/thinking")
+                        .and_then(Value::as_str)
+                    {
+                        emit_reasoning(app, &request.request_id, thinking, cancel);
+                    }
                     if let Some(text) = value.pointer("/delta/text").and_then(Value::as_str) {
                         emit_token(app, &request.request_id, text, cancel);
                     }
@@ -962,18 +1018,28 @@ pub async fn complete_text(
         | ProviderKind::DeepSeek
         | ProviderKind::Custom => {
             let base = compatible_base_url(&kind, request.host.as_deref())?;
+            let reasoning_model = uses_openai_completion_tokens(&kind, &request.model);
             let mut messages = message_pairs(system, &history, &user, true);
             let mut body = json!({
                 "model": request.model,
                 "stream": false,
                 "messages": messages
             });
-            body["temperature"] = json!(request.temperature.unwrap_or(0.7));
+            // Reasoning models (o1/o3/o4, gpt-5) reject `temperature` and need
+            // `max_completion_tokens` instead of `max_tokens`.
+            if !reasoning_model {
+                body["temperature"] = json!(request.temperature.unwrap_or(0.7));
+            }
             if let Some(top_p) = request.top_p {
                 body["top_p"] = json!(top_p);
             }
             if let Some(max_tokens) = request.max_tokens {
-                body["max_tokens"] = json!(max_tokens);
+                let key = if reasoning_model {
+                    "max_completion_tokens"
+                } else {
+                    "max_tokens"
+                };
+                body[key] = json!(max_tokens);
             }
             let mut builder = client
                 .post(format!("{base}/chat/completions"))

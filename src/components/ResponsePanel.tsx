@@ -1,5 +1,8 @@
 import {
+  Brain,
   Check,
+  ChevronDown,
+  ChevronRight,
   ClipboardCopy,
   CornerDownLeft,
   Download,
@@ -41,6 +44,12 @@ interface ResponsePanelProps {
   current: string;
   status: StreamStatus;
   error: string | null;
+  /** True while the model is emitting reasoning tokens (thinking models): the
+   *  empty area shows a "Thinking…" indicator instead of waiting text. */
+  thinking?: boolean;
+  /** Reasoning text accumulated during the run; shown as a fallback when the
+   *  model finishes without producing an actual answer. */
+  reasoning?: string;
   lang?: Language;
   model?: string;
   chatTitle?: string;
@@ -48,6 +57,11 @@ interface ResponsePanelProps {
   onNewChat: () => void;
   onAutoInsertSuccess?: () => void;
   onRegenerate?: () => void;
+  /** Re-runs the last user question after a failed turn (error state). */
+  onRetry?: (target: string) => void;
+  /** The question a Retry would re-send (from the trimmed history or the
+   *  still-typed prompt). When empty, no Retry button is shown. */
+  retryTarget?: string;
   onEditPrompt?: (content: string) => void;
   chats?: ChatsMenuData;
 }
@@ -268,6 +282,8 @@ export function ResponsePanel({
   current,
   status,
   error,
+  thinking = false,
+  reasoning = "",
   lang = "en",
   model,
   chatTitle,
@@ -275,11 +291,20 @@ export function ResponsePanel({
   onNewChat,
   onAutoInsertSuccess,
   onRegenerate,
+  onRetry,
+  retryTarget = "",
   onEditPrompt,
   chats,
 }: ResponsePanelProps) {
   const [insertError, setInsertError] = useState<string | null>(null);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
+  // Collapsible reasoning viewer for thinking models: expanded via the
+  // "View reasoning" toggle, reset on every new run.
+  const [showReasoning, setShowReasoning] = useState(false);
+
+  useEffect(() => {
+    if (status === "streaming") setShowReasoning(false);
+  }, [status]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -331,6 +356,11 @@ export function ResponsePanel({
     Boolean(onRegenerate) &&
     status !== "streaming" &&
     lastMessage?.role === "assistant";
+  // Retry makes sense only when the failed turn has a question to re-send:
+  // either a previous user message in the trimmed history or a prompt still
+  // typed in the input (a failed turn rolls the dangling message back).
+  const canRetry =
+    Boolean(onRetry) && status === "error" && retryTarget.trim().length > 0;
   const lastAssistant =
     lastMessage?.role === "assistant" ? lastMessage.content : lastAssistantContent;
   const tokenCount =
@@ -361,12 +391,18 @@ export function ResponsePanel({
         <div className="flex items-center gap-2 text-[11px] text-[var(--pe-text-muted)]">
           {status === "streaming" ? (
             <>
-              <Loader2 className="h-3 w-3 animate-spin text-cyan-400" />
-              <span className="text-[var(--pe-accent-strong)]">{t(lang, "streaming")}</span>
+              {thinking ? (
+                <Brain className="h-3 w-3 animate-pulse text-violet-400" />
+              ) : (
+                <Loader2 className="h-3 w-3 animate-spin text-cyan-400" />
+              )}
+              <span className={thinking ? "text-[var(--pe-violet-strong)]" : "text-[var(--pe-accent-strong)]"}>
+                {thinking ? t(lang, "thinking") : t(lang, "streaming")}
+              </span>
               <span className="inline-flex gap-0.5">
-                <span className="h-1 w-1 animate-pulse rounded-full bg-cyan-400" />
-                <span className="h-1 w-1 animate-pulse rounded-full bg-cyan-400 [animation-delay:150ms]" />
-                <span className="h-1 w-1 animate-pulse rounded-full bg-cyan-400 [animation-delay:300ms]" />
+                <span className={`h-1 w-1 animate-pulse rounded-full ${thinking ? "bg-violet-400" : "bg-cyan-400"}`} />
+                <span className={`h-1 w-1 animate-pulse rounded-full ${thinking ? "bg-violet-400" : "bg-cyan-400"} [animation-delay:150ms]`} />
+                <span className={`h-1 w-1 animate-pulse rounded-full ${thinking ? "bg-violet-400" : "bg-cyan-400"} [animation-delay:300ms]`} />
               </span>
             </>
           ) : status === "error" ? (
@@ -393,6 +429,17 @@ export function ResponsePanel({
             >
               <Square className="h-3 w-3 fill-current" />
               {t(lang, "stop")}
+            </button>
+          )}
+          {canRetry && (
+            <button
+              type="button"
+              onClick={() => onRetry?.(retryTarget)}
+              title={t(lang, "retry")}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--pe-rose-strong)] transition hover:bg-[var(--pe-hover)] hover:text-[var(--pe-rose-strong)]"
+            >
+              <RefreshCw className="h-3 w-3" />
+              {t(lang, "retry")}
             </button>
           )}
           {canRegenerate && (
@@ -500,6 +547,34 @@ export function ResponsePanel({
           ),
         )}
 
+        {/* Collapsible reasoning viewer: the model's thinking, surfaced after
+            the run finishes (reasoning is flushed on done). Rendered outside
+            showTransient because a completed reply moves into `messages` and
+            the transient buffer is skipped to avoid double-rendering. */}
+        {status === "done" && current && reasoning.trim() && (
+          <div className="mb-2 flex flex-col gap-1 rounded-lg border border-violet-400/20 bg-violet-400/5">
+            <button
+              type="button"
+              onClick={() => setShowReasoning((open) => !open)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-left text-[10px] font-medium uppercase tracking-wider text-[var(--pe-violet-strong)] transition hover:bg-violet-400/10"
+              aria-expanded={showReasoning}
+            >
+              {showReasoning ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
+              <Brain className="h-3 w-3" />
+              {showReasoning ? t(lang, "hideReasoning") : t(lang, "viewReasoning")}
+            </button>
+            {showReasoning && (
+              <div className="custom-scroll max-h-40 overflow-y-auto whitespace-pre-wrap break-words px-3 pb-2 pr-2 font-mono text-[11px] leading-relaxed text-[var(--pe-text-soft)]">
+                {reasoning}
+              </div>
+            )}
+          </div>
+        )}
+
         {showTransient && (
           <div className="flex">
             <div className="min-w-0 flex-1">
@@ -509,10 +584,30 @@ export function ResponsePanel({
                   streaming={status === "streaming"}
                   lang={lang}
                 />
+              ) : status === "streaming" && thinking ? (
+                <div className="flex items-center gap-2 text-[12px] text-[var(--pe-violet-strong)]">
+                  <Brain className="h-3.5 w-3.5 animate-pulse" />
+                  {t(lang, "thinking")}
+                  <span className="inline-flex gap-0.5">
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-violet-400" />
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-violet-400 [animation-delay:150ms]" />
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-violet-400 [animation-delay:300ms]" />
+                  </span>
+                </div>
               ) : status === "streaming" ? (
                 <div className="flex items-center gap-2 text-[12px] text-[var(--pe-text-muted)]">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
                   {t(lang, "waitingToken")}
+                </div>
+              ) : status === "done" && !current && reasoning.trim() ? (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--pe-text-faint)]">
+                    <Brain className="h-3 w-3" />
+                    {t(lang, "thinking")}
+                  </div>
+                  <p className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-[var(--pe-text-soft)]">
+                    {reasoning}
+                  </p>
                 </div>
               ) : null}
             </div>

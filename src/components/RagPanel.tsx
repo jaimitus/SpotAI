@@ -2,13 +2,16 @@ import { Database, FileText, Search, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useState, type DragEvent, type FormEvent } from "react";
 import { t } from "../lib/i18n";
 import type { Language } from "../types";
+import { cn } from "../utils/cn";
 import {
   isSupportedFile,
   listenDragDrop,
+  ragGetDocuments,
   ragGetStats,
   ragIndexFiles,
   ragQuery,
   ragRemoveDocument,
+  type RagDocument,
   type RagSearchResult,
   type RagStats,
 } from "../lib/tauri";
@@ -20,6 +23,10 @@ interface RagPanelProps {
 
 export function RagPanel({ lang, onClose }: RagPanelProps) {
   const [stats, setStats] = useState<RagStats | null>(null);
+  const [documents, setDocuments] = useState<RagDocument[]>([]);
+  // Document selected in the panel: selecting one scopes the spotlight
+  // suggestions to that file (regenerated without reloading the app).
+  const [activeDocument, setActiveDocument] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [indexingProgress, setIndexingProgress] = useState<{current: number; total: number; fileName: string} | null>(null);
@@ -31,6 +38,9 @@ export function RagPanel({ lang, onClose }: RagPanelProps) {
   const loadStats = useCallback(() => {
     void ragGetStats()
       .then(setStats)
+      .catch(() => undefined);
+    void ragGetDocuments()
+      .then(setDocuments)
       .catch(() => undefined);
   }, []);
 
@@ -148,13 +158,36 @@ export function RagPanel({ lang, onClose }: RagPanelProps) {
       try {
         await ragRemoveDocument(docPath);
         setResults((current) => current.filter((r) => r.documentPath !== docPath));
+        const wasActive = activeDocument === docPath;
+        setActiveDocument((current) => (current === docPath ? null : current));
         loadStats();
         window.dispatchEvent(new CustomEvent("spotai:rag-changed"));
+        // If the removed file was the one scoping the spotlight suggestions,
+        // reset the selection so it does not stay pointed at a ghost doc.
+        if (wasActive) {
+          window.dispatchEvent(
+            new CustomEvent("spotai:rag-doc-selected", { detail: { path: null } }),
+          );
+        }
       } catch {
         // Keep the row; the failure is non-critical.
       }
     },
-    [loadStats],
+    [loadStats, activeDocument],
+  );
+
+  /** Selects a document in the panel and asks the spotlight to regenerate its
+   *  AI suggestions scoped to that file (no reload needed). Clicking the
+   *  already-active document deselects it back to all documents. */
+  const handleSelectDocument = useCallback(
+    (docPath: string) => {
+      const next = activeDocument === docPath ? null : docPath;
+      setActiveDocument(next);
+      window.dispatchEvent(
+        new CustomEvent("spotai:rag-doc-selected", { detail: { path: next } }),
+      );
+    },
+    [activeDocument],
   );
 
   return (
@@ -215,6 +248,41 @@ export function RagPanel({ lang, onClose }: RagPanelProps) {
           </>
         )}
       </div>
+
+      {/* Indexed documents: click one to scope the spotlight suggestions to
+          it (regenerated on the fly); click again to go back to all. */}
+      {documents.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="text-[10px] font-medium uppercase tracking-wider text-[var(--pe-text-faint)]">
+            {t(lang, "ragDocumentsTitle")}
+          </div>
+          <div className="custom-scroll flex max-h-28 flex-col gap-0.5 overflow-y-auto">
+            {documents.map((doc) => {
+              const active = activeDocument === doc.path;
+              return (
+                <button
+                  key={doc.path}
+                  type="button"
+                  title={t(lang, "ragSelectDocument")}
+                  onClick={() => handleSelectDocument(doc.path)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] transition",
+                    active
+                      ? "border border-violet-400/40 bg-violet-400/10 text-[var(--pe-violet-strong)]"
+                      : "border border-transparent text-[var(--pe-text-soft)] hover:bg-[var(--pe-hover)] hover:text-[var(--pe-text)]",
+                  )}
+                >
+                  <FileText className="h-3 w-3 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">{doc.name}</span>
+                  <span className="shrink-0 text-[9px] text-[var(--pe-text-faint)]">
+                    {doc.chunkCount}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Query form */}
       <form onSubmit={handleQuery} className="flex items-center gap-1.5">

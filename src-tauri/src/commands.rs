@@ -921,8 +921,10 @@ pub fn parse_suggested_actions(raw: &str) -> Vec<SuggestedAction> {
 }
 
 /// AI-generated suggested actions: the model reads the top chunks of the
-/// indexed documents and proposes questions and concrete actions related to
-/// their actual content. Uses the same provider/streaming stack as prompts.
+/// indexed documents (or a single one when `document_path` is given, e.g. when
+/// the user selected a document in the RAG panel) and proposes questions and
+/// concrete actions related to their actual content. Uses the same
+/// provider/streaming stack as prompts.
 #[tauri::command]
 pub async fn suggest_document_actions(
     client: State<'_, AiHttpClient>,
@@ -935,6 +937,7 @@ pub async fn suggest_document_actions(
     language: Option<String>,
     temperature: Option<f32>,
     max_tokens: Option<u32>,
+    document_path: Option<String>,
 ) -> Result<Vec<SuggestedAction>, String> {
     if model.trim().is_empty() {
         return Ok(Vec::new());
@@ -945,10 +948,16 @@ pub async fn suggest_document_actions(
         return Ok(Vec::new());
     }
 
-    // Pull the most relevant chunks of every indexed document so the model
-    // reasons over real content, not just file names.
+    // Pull the most relevant chunks of the selected document only, or of every
+    // indexed document when none is selected, so the model reasons over real
+    // content, not just file names.
     let mut context_parts = Vec::new();
     for doc in docs.iter().take(5) {
+        if let Some(selected) = document_path.as_deref() {
+            if selected != doc.path {
+                continue;
+            }
+        }
         let results = rag_state
             .search(&format!("overview of {}", doc.name), 4)
             .await?;

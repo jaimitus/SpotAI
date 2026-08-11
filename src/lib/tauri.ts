@@ -557,6 +557,8 @@ export async function suggestDocumentActions(params: {
   language?: string;
   temperature?: number | null;
   maxTokens?: number | null;
+  /** When set, suggestions are generated only for this indexed document. */
+  documentPath?: string | null;
 }): Promise<SuggestedAction[]> {
   return invoke<SuggestedAction[]>("suggest_document_actions", params);
 }

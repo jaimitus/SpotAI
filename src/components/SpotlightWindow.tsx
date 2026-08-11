@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Settings2,
   Sparkles,
+  Square,
   Terminal,
   X,
   Zap,
@@ -260,6 +261,10 @@ export function SpotlightWindow() {
   // the actual content (no fixed template questions).
   const [suggestedActions, setSuggestedActions] = useState<SuggestedAction[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  // Document selected in the RAG panel: when set, suggestions are generated
+  // only for that file (null = all documents). Updated live via the
+  // spotai:rag-doc-selected event, so switching documents needs no reload.
+  const [activeRagDoc, setActiveRagDoc] = useState<string | null>(null);
   // Set when a submitted prompt had matching RAG chunks attached: the badge
   // under the input shows the user how much document context was injected,
   // plus clickable [1] [2] citations that open the source documents.
@@ -310,7 +315,7 @@ export function SpotlightWindow() {
     json: "contextKind_json",
     url: "contextKind_url",
   };
-  const { response, status, error, start, stop, restore, reset } = useLLMStream();
+  const { response, status, error, thinking, reasoning, start, stop, restore, reset } = useLLMStream();
 
   const setPromptValue = useCallback((value: string) => {
     historyIndexRef.current = null;
@@ -413,6 +418,7 @@ export function SpotlightWindow() {
       language: currentLang,
       temperature: settings.temperature ?? null,
       maxTokens: 512,
+      documentPath: activeRagDoc,
     })
       .then((actions) => {
         // Cap the chips so a verbose model can never overflow the compact UI.
@@ -425,8 +431,9 @@ export function SpotlightWindow() {
       })
       .finally(() => setSuggestionsLoading(false));
     // Deps narrowed to the primitives actually read so unrelated settings saves
-    // (e.g. a theme change) do not trigger a fresh model call.
-  }, [model, provider, settings.systemPrompt, settings.temperature, ragDocumentCount, currentLang]);
+    // (e.g. a theme change) do not trigger a fresh model call. activeRagDoc is
+    // included so selecting a document in the panel regenerates suggestions.
+  }, [model, provider, settings.systemPrompt, settings.temperature, ragDocumentCount, currentLang, activeRagDoc]);
 
   const syncRagState = useCallback(() => {
     Promise.all([
@@ -473,6 +480,20 @@ export function SpotlightWindow() {
       }
     };
   }, [generateSuggestions]);
+
+  // A document selected in the RAG panel scopes the suggestions to that file:
+  // update the state (which re-runs the debounced generation) without a reload.
+  useEffect(() => {
+    const onDocSelected = (event: Event) => {
+      const path = (event as CustomEvent<{ path: string | null }>).detail?.path ?? null;
+      setActiveRagDoc(path);
+      // Drop stale suggestions immediately so the header shows the loading
+      // state while the new set is generated.
+      setSuggestedActions([]);
+    };
+    window.addEventListener("spotai:rag-doc-selected", onDocSelected);
+    return () => window.removeEventListener("spotai:rag-doc-selected", onDocSelected);
+  }, []);
 
   const recordPrompt = useCallback((value: string) => {
     const normalized = value.trim();
@@ -1042,40 +1063,24 @@ export function SpotlightWindow() {
     setActiveAction(id);
     const template = buildActionPrompt(id, undefined, currentLang);
     setPromptValue(template);
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      const el = inputRef.current;
-      if (el) {
-        el.selectionStart = el.value.length;
-        el.selectionEnd = el.value.length;
-      }
-    });
+    // Send immediately: selecting a chip runs the action without needing
+    // Enter or the send arrow (same behaviour as the AI suggestion chips).
+    void submit(template);
   };
 
   const handleSelectCustomAction = (customAction: CustomAction) => {
     setActiveAction(customAction.id);
     setPromptValue(customAction.prompt);
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      const el = inputRef.current;
-      if (el) {
-        el.selectionStart = el.value.length;
-        el.selectionEnd = el.value.length;
-      }
-    });
+    // Send immediately: a custom action executes on selection.
+    void submit(customAction.prompt);
   };
 
   const handleSelectTemplate = (template: PromptTemplate) => {
     setActiveAction(template.id);
     setPromptValue(template.prompt);
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      const el = inputRef.current;
-      if (el) {
-        el.selectionStart = el.value.length;
-        el.selectionEnd = el.value.length;
-      }
-    });
+    // Send immediately: a prompt template executes on selection, matching the
+    // direct-send behaviour of action chips and custom actions.
+    void submit(template.prompt);
   };
 
   const toggleIncognito = useCallback(() => {
@@ -1444,6 +1449,15 @@ export function SpotlightWindow() {
     return true;
   }, [isStreaming, prompt, contextText, contextImage, model]);
 
+  // Call-to-action state: the overlay opened with captured context (clipboard
+  // or image) but the user has not typed anything yet. The send button glows
+  // and a hint appears because one press of Enter asks about the selection.
+  const showAskCta =
+    Boolean(contextText.trim() || contextImage) &&
+    !prompt.trim() &&
+    !isStreaming &&
+    Boolean(model);
+
   const submit = async (overridePrompt?: string) => {
     // The override path (suggestion chip click) must not be gated by the
     // current prompt state: the chip text is not in `prompt` yet (state
@@ -1776,19 +1790,29 @@ export function SpotlightWindow() {
               <div className="text-[12px] font-semibold tracking-tight text-[var(--pe-text-strong)]">
                 SpotAI
               </div>
-              <div
+              <button
+                type="button"
+                onClick={() => {
+                  if (shortcutError) setSettingsOpen(true);
+                }}
+                title={
+                  shortcutError
+                    ? t(currentLang, "shortcutErrorAction")
+                    : undefined
+                }
                 className={cn(
-                  "text-[10px]",
-                  shortcutError ? "text-[var(--pe-rose-strong)]" : "text-[var(--pe-text-muted)]",
+                  "text-left text-[10px]",
+                  shortcutError
+                    ? "cursor-pointer text-[var(--pe-rose-strong)] underline decoration-rose-400/40 underline-offset-2 transition hover:text-rose-300"
+                    : "text-[var(--pe-text-muted)]",
                 )}
-                title={shortcutError ?? undefined}
               >
                 {booting
                   ? t(currentLang, "starting")
                   : shortcutError
                     ? t(currentLang, "shortcutUnavailable")
                     : `${settings.globalShortcut || "Alt+Space"} | ${t(currentLang, "aiSpotlight")}`}
-              </div>
+              </button>
             </div>
           </div>
 
@@ -2186,19 +2210,48 @@ export function SpotlightWindow() {
                 )}
               </button>
             )}
+            {/* Call-to-action: when the overlay opened with captured context but
+                no prompt typed yet, the send affordance glows so the user sees
+                that one press of Enter asks about the selected text. */}
+            {showAskCta && (
+              <div className="pointer-events-none absolute -top-6 right-2.5 flex items-center gap-1.5 rounded-full border border-cyan-400/25 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-medium text-[var(--pe-accent-strong)] shadow-lg backdrop-blur-sm">
+                <Sparkles className="h-3 w-3" />
+                {t(currentLang, "ctaAskContext")}
+              </div>
+            )}
             <button
-              type="submit"
-              disabled={!canSubmit}
-              title={t(currentLang, "sendPrompt")}
+              type={isStreaming ? "button" : "submit"}
+              onClick={isStreaming ? () => void stop() : undefined}
+              disabled={!isStreaming && !canSubmit}
+              title={
+                isStreaming
+                  ? t(currentLang, "stopStreaming")
+                  : showAskCta
+                    ? t(currentLang, "ctaAskContext")
+                    : t(currentLang, "sendPrompt")
+              }
+              aria-label={
+                isStreaming
+                  ? t(currentLang, "stopStreaming")
+                  : showAskCta
+                    ? t(currentLang, "ctaAskContext")
+                    : t(currentLang, "sendPrompt")
+              }
               className={cn(
                 "absolute bottom-2.5 right-2.5 flex h-8 w-8 items-center justify-center rounded-lg transition-all",
-                canSubmit
-                  ? "bg-gradient-to-br from-cyan-400 to-violet-500 text-zinc-950 shadow-lg shadow-cyan-500/25 hover:brightness-110"
-                  : "bg-[var(--pe-hover)] text-[var(--pe-text-faint)]",
+                isStreaming
+                  ? "bg-rose-500/90 text-zinc-950 shadow-lg shadow-rose-500/25 hover:bg-rose-400"
+                  : canSubmit
+                    ? "bg-gradient-to-br from-cyan-400 to-violet-500 text-zinc-950 shadow-lg shadow-cyan-500/25 hover:brightness-110"
+                    : "bg-[var(--pe-hover)] text-[var(--pe-text-faint)]",
+                // The captured-context CTA adds a gentle pulse + a cyan glow
+                // ring so the primary action is obvious the moment the overlay
+                // shows (the ring color is embedded in the arbitrary shadow).
+                showAskCta && "animate-pulse shadow-[0_0_0_4px_rgba(34,211,238,0.15)]",
               )}
             >
               {isStreaming ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Square className="h-3.5 w-3.5 fill-current" strokeWidth={2.5} />
               ) : (
                 <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
               )}
@@ -2423,6 +2476,8 @@ export function SpotlightWindow() {
               current={response}
               status={status}
               error={error}
+              thinking={thinking}
+              reasoning={reasoning}
               lang={currentLang}
               model={model}
               chatTitle={
@@ -2434,6 +2489,17 @@ export function SpotlightWindow() {
               onNewChat={newChat}
               onAutoInsertSuccess={clearOverlayState}
               onRegenerate={() => void regenerate()}
+              retryTarget={
+                // A failed turn rolled the conversation back, so the last user
+                // question is read from the trimmed history (or the input).
+                [...messages]
+                  .reverse()
+                  .find((message) => message.role === "user")?.content ||
+                prompt
+              }
+              onRetry={(target) => {
+                if (target.trim()) void submit(target);
+              }}
               onEditPrompt={editPrompt}
               chats={{
                 conversations,
