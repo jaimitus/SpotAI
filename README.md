@@ -37,9 +37,9 @@ Every version's changes — from v1.0.0 to the latest — live in the versioned 
 - 🚀 **Auto-start with Windows**: Launch SpotAI automatically when you log in (toggle in Settings → General).
 - 🔄 **Automatic Updates**: SpotAI checks GitHub Releases on startup and installs & restarts in one click (Tauri updater, signed).
 - 🎙️ **Advanced Voice Input**: Hold `Alt + V` (or press the mic button) to speak in **5 languages** (EN/ES/DE/PT/FR) with Whisper.cpp and real embeddings.
-- 📚 **RAG Local - Pregunta a tus Archivos**: Arrastra archivos y haz preguntas sobre tu código/documentación con búsqueda semántica vectorial local. Soporta **PDF, DOCX, TXT, MD, CSV, HTML/XML, JSON, YAML, TOML**, código (Rust, Python, JS/TS, Go, Java, C/C++, etc.) y ficheros de config/logs.
-- 💻 **CLI Injection (/exec)**: Genera comandos PowerShell/CMD inteligentes con confirmación de seguridad y ejecución directa en terminal.
-- 🔍 **Embeddings Reales**: Usa el modelo `nomic-embed-text` vía Ollama para representaciones semánticas precisas en lugar de hashes.
+- 📚 **Local RAG — Ask Your Files**: Drag files in and ask questions about your code and documentation with local vector semantic search. Supports **PDF, DOCX, TXT, MD, CSV, HTML/XML, JSON, YAML, TOML**, code (Rust, Python, JS/TS, Go, Java, C/C++, etc.) and config/log files.
+- 💻 **CLI Injection (/exec)**: Generate smart PowerShell/CMD commands with a security confirmation step and direct terminal execution.
+- 🔍 **Real Embeddings**: Uses the `nomic-embed-text` model via Ollama for accurate semantic representations instead of hash-based fallbacks.
 - 📦 **Zero Heavy Dependencies**: Lightweight native Windows binary built with Tauri v2 and Rust.
 
 ---
