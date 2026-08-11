@@ -1,7 +1,7 @@
 //! Tauri IPC commands and global shortcut lifecycle for SpotAI.
 
 use crate::ai::providers::{
-    default_cloud_models, delete_ollama_model, fetch_lmstudio_models as query_lmstudio_models,
+    complete_text, default_cloud_models, delete_ollama_model, fetch_lmstudio_models as query_lmstudio_models,
     fetch_ollama_models, fetch_openai_compatible_models as query_openai_compatible_models,
     ollama_ps, pull_ollama_model, stream_prompt, AiHttpClient, ChatMessage, ModelInfo,
     OllamaPsModel, PromptRequest, ProviderError, DEFAULT_LMSTUDIO_HOST, DEFAULT_OLLAMA_HOST,
@@ -874,6 +874,132 @@ pub async fn rag_remove_document(
     rag_state.remove_document(&doc_path).await
 }
 
+/// A model-suggested action: a question (`?`) the user can ask about their
+/// documents, or a concrete action (`!`) such as summarize / list deadlines.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestedAction {
+    pub kind: String,
+    pub text: String,
+}
+
+/// Parse the model's raw suggestion output into structured actions. The model
+/// is instructed to emit one line per suggestion: `?` for a question and `!`
+/// for an action. Lines without a marker are treated as questions; unparseable
+/// lines are dropped.
+pub fn parse_suggested_actions(raw: &str) -> Vec<SuggestedAction> {
+    let mut actions = Vec::new();
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Skip common wrapper lines the model may add around the list.
+        let without_list = trimmed.trim_start_matches(['-', '*', '•', '\u{2022}']).trim();
+        let (kind, text) = if let Some(rest) = without_list.strip_prefix('!') {
+            ("action", rest.trim())
+        } else if let Some(rest) = without_list.strip_prefix('?') {
+            ("question", rest.trim())
+        } else {
+            // Bare lines are ambiguous; only keep them when they end with a
+            // question mark so noise from the model intro is filtered out.
+            if without_list.ends_with('?') {
+                ("question", without_list)
+            } else {
+                continue;
+            }
+        };
+        if text.is_empty() {
+            continue;
+        }
+        actions.push(SuggestedAction {
+            kind: kind.to_string(),
+            text: text.to_string(),
+        });
+    }
+    actions
+}
+
+/// AI-generated suggested actions: the model reads the top chunks of the
+/// indexed documents and proposes questions and concrete actions related to
+/// their actual content. Uses the same provider/streaming stack as prompts.
+#[tauri::command]
+pub async fn suggest_document_actions(
+    client: State<'_, AiHttpClient>,
+    rag_state: tauri::State<'_, rag::RagState>,
+    provider: String,
+    model: String,
+    host: Option<String>,
+    api_key: Option<String>,
+    system_prompt: Option<String>,
+    language: Option<String>,
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+) -> Result<Vec<SuggestedAction>, String> {
+    if model.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let docs = rag_state.get_documents().await?;
+    if docs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Pull the most relevant chunks of every indexed document so the model
+    // reasons over real content, not just file names.
+    let mut context_parts = Vec::new();
+    for doc in docs.iter().take(5) {
+        let results = rag_state
+            .search(&format!("overview of {}", doc.name), 4)
+            .await?;
+        for result in results {
+            context_parts.push(format!("[{}]\n{}", doc.name, result.content));
+        }
+    }
+    let context = context_parts.join("\n\n");
+    if context.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let lang = language.as_deref().unwrap_or("en");
+    let prompt = format!(
+        "Read the reference documents inside <context> and propose useful next steps.\n\n\
+         Rules:\n\
+         - Write every suggestion in the language code '{lang}' (the user's interface language).\n\
+         - Propose exactly 5 suggestions that mix questions and concrete actions.\n\
+         - Questions start with '? ' and actions start with '! '.\n\
+         - One suggestion per line. No numbering, no headers, no commentary.\n\
+         - Make each suggestion specific to the document content: deadlines, decisions, risks, \n\
+           key facts, comparisons, or follow-up work."
+    );
+
+    let request = PromptRequest {
+        provider,
+        model,
+        prompt,
+        context_text: Some(context),
+        api_key,
+        system_prompt,
+        host,
+        temperature,
+        max_tokens,
+        history: Vec::new(),
+        image_data_url: None,
+        request_id: format!("suggest_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)),
+        top_p: None,
+        top_k: None,
+        repeat_penalty: None,
+        seed: None,
+        num_ctx: None,
+        num_predict: None,
+    };
+
+    let raw = complete_text(&client.0, &request, "You are SpotAI. You analyze user documents and propose helpful next questions and actions.")
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(parse_suggested_actions(&raw))
+}
+
 /// CLI Injection: Analyze command safety and generate shell command
 #[tauri::command]
 pub fn analyze_command_safety(command: String) -> Result<native_input::ShellCommand, String> {
@@ -916,4 +1042,45 @@ pub async fn execute_shell_command(
     // The frontend should show a confirmation dialog before calling this
     
     native_input::execute_command(&cmd)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_suggested_actions;
+
+    #[test]
+    fn parses_questions_and_actions() {
+        let raw = "? What is the deadline of this contract?\n! Summarize the key clauses\n? Who are the parties?\n";
+        let actions = parse_suggested_actions(raw);
+        assert_eq!(actions.len(), 3);
+        assert_eq!(actions[0].kind, "question");
+        assert_eq!(actions[0].text, "What is the deadline of this contract?");
+        assert_eq!(actions[1].kind, "action");
+        assert_eq!(actions[1].text, "Summarize the key clauses");
+        assert_eq!(actions[2].kind, "question");
+    }
+
+    #[test]
+    fn strips_bullets_and_model_noise() {
+        let raw = "Here are some suggestions:\n- ? Point one?\n- ! Do the thing\nJust filler without marker\n";
+        let actions = parse_suggested_actions(raw);
+        assert_eq!(actions.len(), 2, "filler lines without markers are dropped");
+        assert_eq!(actions[0].kind, "question");
+        assert_eq!(actions[1].kind, "action");
+    }
+
+    #[test]
+    fn bare_question_lines_are_kept_but_bare_statements_dropped() {
+        let raw = "A bare question?\nA bare statement\n";
+        let actions = parse_suggested_actions(raw);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].kind, "question");
+        assert_eq!(actions[0].text, "A bare question?");
+    }
+
+    #[test]
+    fn empty_input_yields_no_actions() {
+        assert!(parse_suggested_actions("").is_empty());
+        assert!(parse_suggested_actions("\n\n  \n").is_empty());
+    }
 }

@@ -10,6 +10,7 @@ import type {
   PromptRequest,
   QuickActionPayload,
   ShortcutStatus,
+  SuggestedAction,
   TokenEvent,
   VoiceCaptureResult,
   VoiceStateEvent,
@@ -543,6 +544,21 @@ export async function ragIndexFiles(filePaths: string[]): Promise<Record<string,
 /** Query indexed documents with semantic search */
 export async function ragQuery(query: string, topK?: number): Promise<RagQueryResult> {
   return invoke<RagQueryResult>("rag_query", { query, topK: topK ?? null });
+}
+
+/** Ask the model to read the indexed documents and propose related questions
+ *  and concrete actions (AI-generated suggested actions). */
+export async function suggestDocumentActions(params: {
+  provider: string;
+  model: string;
+  host?: string | null;
+  apiKey?: string | null;
+  systemPrompt?: string | null;
+  language?: string;
+  temperature?: number | null;
+  maxTokens?: number | null;
+}): Promise<SuggestedAction[]> {
+  return invoke<SuggestedAction[]>("suggest_document_actions", params);
 }
 
 /** Get statistics about indexed documents */

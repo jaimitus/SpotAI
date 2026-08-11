@@ -168,6 +168,7 @@ pub fn run() {
             commands::rag_query,
             commands::rag_get_stats,
             commands::rag_get_documents,
+            commands::suggest_document_actions,
             commands::rag_remove_document,
             commands::analyze_command_safety,
             commands::execute_shell_command,

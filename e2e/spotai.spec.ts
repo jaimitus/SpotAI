@@ -119,6 +119,8 @@ function buildTauriMock(
   const listeners = new Map();
   let callbackId = 0;
   let voiceState = { recording: false, engine: "${engine}", selectedMic: "", language: null };
+  // Alternates the fixed suggestion list so the regenerate button can be tested.
+  let suggestionBatch = 0;
   // Stateful whisper install: only the tiny model is downloaded initially.
   let whisper = {
     installed: true,
@@ -239,6 +241,21 @@ function buildTauriMock(
           );
         case "rag_get_stats":
           return { documentCount: 1, chunkCount: 2 };
+        case "suggest_document_actions":
+          // Mirror the Rust backend: the model reads the indexed chunks and
+          // returns suggested questions/actions. Alternates between two sets so
+          // tests can verify the regenerate button produces a fresh list.
+          suggestionBatch += 1;
+          return suggestionBatch % 2 === 1
+            ? [
+                { kind: "question", text: "What is manual.md about?" },
+                { kind: "question", text: "What are the key points of manual.md?" },
+                { kind: "action", text: "Summarize the installation steps" },
+              ]
+            : [
+                { kind: "question", text: "Does the manual cover backups?" },
+                { kind: "action", text: "List the requirements" },
+              ];
         case "rag_get_documents":
           // One indexed document so the spotlight sync completes (it lists
           // documents to build suggested questions / the auto-context gate).
@@ -784,8 +801,8 @@ test("submitting with matching documents shows the RAG context badge", async ({ 
   );
   await page.goto("/");
 
-  // The RAG state sync is async: wait for a suggested question (which is set
-  // in the same .then as the document count) so the auto-context gate is armed.
+  // The RAG state sync is async: wait for an AI-suggested action (generated
+  // once the document count + model are armed) so the auto-context gate is up.
   await expect(
     page.getByText("What is manual.md about?", { exact: true }),
   ).toBeVisible();
@@ -825,6 +842,74 @@ test("submitting with matching documents shows the RAG context badge", async ({ 
       ),
     )
     .toBe("C:\\docs\\manual.md");
+});
+
+test("AI suggestions render questions and actions and clicking one fills the prompt", async ({
+  page,
+}) => {
+  // Same mock as the badge test: one indexed document, a local model and
+  // fixed suggestions returned by suggest_document_actions.
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "spotai.settings.v1",
+      JSON.stringify({ defaultProvider: "ollama", defaultModel: "llama3" }),
+    );
+  });
+  await page.addInitScript(
+    buildTauriMock("native", {
+      ragResults: [
+        {
+          chunkId: "c1",
+          documentPath: "C:\\docs\\manual.md",
+          content: "SpotAI indexes local files",
+          similarity: 0.91,
+          metadata: { fileType: "md", fileSize: 42, createdAt: 0 },
+        },
+      ],
+    }),
+  );
+  await page.goto("/");
+
+  // The suggestions section only renders once the model reads the documents.
+  await expect(
+    page.getByText("Suggested with your documents", { exact: true }),
+  ).toBeVisible();
+
+  // Both kinds are shown: questions and concrete actions.
+  const questionChip = page.getByRole("button", {
+    name: "What is manual.md about?",
+  });
+  const actionChip = page.getByRole("button", {
+    name: "Summarize the installation steps",
+  });
+  await expect(questionChip).toBeVisible();
+  await expect(actionChip).toBeVisible();
+
+  // The regenerate button asks the model for a different set of suggestions.
+  await page.getByRole("button", { name: "Regenerate suggestions" }).click();
+  await expect(
+    page.getByRole("button", { name: "Does the manual cover backups?" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "What is manual.md about?" }),
+  ).not.toBeVisible();
+
+  // Clicking a question suggestion sends it immediately: no Enter needed.
+  // The prompt textarea keeps the asked question and the conversation shows
+  // the message was actually submitted (the mock resolves the stream fast).
+  await page
+    .getByRole("button", { name: "Does the manual cover backups?" })
+    .click();
+  await expect(page.locator("textarea").first()).toHaveValue(
+    "Does the manual cover backups?",
+  );
+  await expect(
+    page.getByText("Does the manual cover backups?", { exact: true }),
+  ).toBeVisible();
+  // The suggestion section hides while the ask is in flight.
+  await expect(
+    page.getByText("Suggested with your documents", { exact: true }),
+  ).not.toBeVisible();
 });
 
 test("dropping supported files into the RAG panel indexes them", async ({ page }) => {

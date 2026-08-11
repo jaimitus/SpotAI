@@ -167,6 +167,13 @@ export interface QuickActionPayload {
   text: string;
 }
 
+/** A model-suggested action over indexed documents: a question to ask or a
+ *  concrete action such as summarize / list deadlines. */
+export interface SuggestedAction {
+  kind: "question" | "action";
+  text: string;
+}
+
 export interface OllamaPsModel {
   name: string;
   size: number;

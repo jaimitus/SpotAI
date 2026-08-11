@@ -18,6 +18,7 @@ import {
   Sparkles,
   Terminal,
   X,
+  Zap,
 } from "lucide-react";
 import {
   useCallback,
@@ -92,6 +93,7 @@ import {
   ragGetStats,
   ragGetDocuments,
   ragQuery,
+  suggestDocumentActions,
 } from "../lib/tauri";
 import type {
   ActionChipId,
@@ -106,6 +108,7 @@ import type {
   PromptTemplate,
   QuickActionPayload,
   ShellCommand,
+  SuggestedAction,
   SystemActionId,
   VoiceTranscribedEvent,
 } from "../types";
@@ -252,7 +255,11 @@ export function SpotlightWindow() {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [showRagPanel, setShowRagPanel] = useState(false);
   const [ragDocumentCount, setRagDocumentCount] = useState<number>(0);
-  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
+  // AI-generated suggestions over the indexed documents: the model reads the
+  // chunks and proposes questions (`?`) and concrete actions (`!`) related to
+  // the actual content (no fixed template questions).
+  const [suggestedActions, setSuggestedActions] = useState<SuggestedAction[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   // Set when a submitted prompt had matching RAG chunks attached: the badge
   // under the input shows the user how much document context was injected,
   // plus clickable [1] [2] citations that open the source documents.
@@ -385,9 +392,42 @@ export function SpotlightWindow() {
     }
   }, []);
 
-  // Sync the RAG document count and suggested questions on mount and whenever
-  // the RAG index changes (a document was added/removed in the panel). The
-  // count gates the automatic document-context injection on submit.
+  // Sync the RAG document count and trigger the AI suggestion generation on
+  // mount and whenever the RAG index changes (a document was added/removed in
+  // the panel). The count gates the automatic document-context injection on
+  // submit. Suggestions only render once documents are indexed: no docs, no
+  // fixed questions.
+  const generateSuggestions = useCallback(() => {
+    if (!model || ragDocumentCount === 0 || !isTauri()) {
+      setSuggestedActions([]);
+      return;
+    }
+    setSuggestionsLoading(true);
+    // The backend resolves API keys from its secure store, matching
+    // send_prompt_stream (cloud providers never receive keys from the UI).
+    suggestDocumentActions({
+      provider,
+      model,
+      host: resolveHost(provider, settings),
+      systemPrompt: settings.systemPrompt || null,
+      language: currentLang,
+      temperature: settings.temperature ?? null,
+      maxTokens: 512,
+    })
+      .then((actions) => {
+        // Cap the chips so a verbose model can never overflow the compact UI.
+        if (Array.isArray(actions)) setSuggestedActions(actions.slice(0, 6));
+      })
+      .catch(() => {
+        // The model may be offline or unconfigured: show no suggestions rather
+        // than a noisy error strip under the prompt.
+        setSuggestedActions([]);
+      })
+      .finally(() => setSuggestionsLoading(false));
+    // Deps narrowed to the primitives actually read so unrelated settings saves
+    // (e.g. a theme change) do not trigger a fresh model call.
+  }, [model, provider, settings.systemPrompt, settings.temperature, ragDocumentCount, currentLang]);
+
   const syncRagState = useCallback(() => {
     Promise.all([
       ragGetStats(),
@@ -395,23 +435,12 @@ export function SpotlightWindow() {
     ])
       .then(([stats, docs]) => {
         setRagDocumentCount(stats.documentCount);
-        // Generate suggested questions when documents are loaded.
-        if (docs.length > 0) {
-          const docNames = docs.slice(0, 3).map((d) => d.name.split(/[\\/]/).pop() || d.name);
-          const questions = [
-            t(currentLang, "ragSuggestSummary").replace("{doc}", docNames[0] ?? ""),
-            t(currentLang, "ragSuggestKeyPoints").replace("{doc}", docNames[0] ?? ""),
-            t(currentLang, "ragSuggestCompare")
-              .replace("{doc1}", docNames[0] ?? "")
-              .replace("{doc2}", docNames[1] ?? docNames[0] ?? ""),
-          ];
-          setSuggestedQuestions(questions.filter((q) => q));
-        } else {
-          setSuggestedQuestions([]);
+        if (docs.length === 0) {
+          setSuggestedActions([]);
         }
       })
       .catch(() => undefined);
-  }, [currentLang]);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -427,6 +456,23 @@ export function SpotlightWindow() {
       window.removeEventListener("spotai:rag-changed", run);
     };
   }, [syncRagState]);
+
+  // Regenerate AI suggestions once the document count and the model settle
+  // (debounced so the model is not hammered while the RAG index syncs).
+  const suggestionTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (suggestionTimerRef.current) {
+      window.clearTimeout(suggestionTimerRef.current);
+    }
+    suggestionTimerRef.current = window.setTimeout(() => {
+      generateSuggestions();
+    }, 600);
+    return () => {
+      if (suggestionTimerRef.current) {
+        window.clearTimeout(suggestionTimerRef.current);
+      }
+    };
+  }, [generateSuggestions]);
 
   const recordPrompt = useCallback((value: string) => {
     const normalized = value.trim();
@@ -1398,10 +1444,15 @@ export function SpotlightWindow() {
     return true;
   }, [isStreaming, prompt, contextText, contextImage, model]);
 
-  const submit = async () => {
-    if (!canSubmit) return;
+  const submit = async (overridePrompt?: string) => {
+    // The override path (suggestion chip click) must not be gated by the
+    // current prompt state: the chip text is not in `prompt` yet (state
+    // updates are async), so canSubmit would see an empty prompt and block.
+    if (!overridePrompt && !canSubmit) return;
 
-    let finalPrompt = prompt.trim();
+    // When a suggestion chip is clicked the prompt is sent straight away: the
+    // override avoids waiting for the async prompt state update.
+    let finalPrompt = (overridePrompt ?? prompt).trim();
     if (!finalPrompt && (contextText || contextImage)) {
       finalPrompt = buildActionPrompt("explain", undefined, currentLang);
     }
@@ -2236,22 +2287,68 @@ export function SpotlightWindow() {
           </div>
         )}
 
-        {/* Suggested questions for RAG documents */}
-        {suggestedQuestions.length > 0 && !isStreaming && (
+        {/* AI-suggested actions over the indexed documents: the model reads the
+            chunks and proposes questions and concrete actions. Only shown when
+            documents are indexed and the model is configured. */}
+        {!isStreaming && (suggestionsLoading || suggestedActions.length > 0) && (
           <div className="px-3 pb-2">
+            <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--pe-text-muted)]">
+              {suggestionsLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin text-[var(--pe-violet-strong)]" />
+              ) : (
+                <Sparkles className="h-3 w-3 text-[var(--pe-violet-strong)]" />
+              )}
+              {suggestionsLoading
+                ? t(currentLang, "ragSuggestionsLoading")
+                : t(currentLang, "ragSuggestionsTitle")}
+              {/* Regenerate: ask the model for a different set of suggestions
+                  without touching the documents or the prompt. */}
+              <button
+                type="button"
+                title={t(currentLang, "ragSuggestionsRefresh")}
+                aria-label={t(currentLang, "ragSuggestionsRefresh")}
+                disabled={suggestionsLoading}
+                onClick={() => {
+                  // Drop the old list first so the loading state reads cleanly
+                  // instead of showing stale chips under the spinner.
+                  setSuggestedActions([]);
+                  generateSuggestions();
+                }}
+                className={cn(
+                  "ml-auto inline-flex h-5 w-5 items-center justify-center rounded-md text-[var(--pe-text-muted)] transition",
+                  suggestionsLoading
+                    ? "cursor-not-allowed opacity-40"
+                    : "hover:bg-[var(--pe-hover)] hover:text-[var(--pe-accent-strong)]",
+                )}
+              >
+                <RefreshCw className="h-3 w-3" />
+              </button>
+            </div>
             <div className="flex flex-wrap gap-2">
-              {suggestedQuestions.map((question, idx) => (
+              {suggestedActions.map((action, idx) => (
                 <button
                   key={idx}
                   type="button"
+                  title={t(currentLang, "ragSuggestionAsk")}
                   onClick={() => {
-                    setPromptValue(question);
-                    inputRef.current?.focus();
+                    // Ask immediately: no need to press Enter or the send arrow.
+                    setPromptValue(action.text);
+                    setSuggestedActions([]);
+                    void submit(action.text);
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--pe-border-soft)] bg-[var(--pe-bg-2)] px-3 py-1.5 text-[12px] text-[var(--pe-text-soft)] transition hover:border-cyan-400/40 hover:bg-cyan-400/10 hover:text-[var(--pe-accent-strong)]"
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] transition",
+                    action.kind === "action"
+                      ? "border-violet-400/30 bg-violet-400/10 text-[var(--pe-violet-strong)] hover:border-violet-400/60 hover:bg-violet-400/20"
+                      : "border-[var(--pe-border-soft)] bg-[var(--pe-bg-2)] text-[var(--pe-text-soft)] hover:border-cyan-400/40 hover:bg-cyan-400/10 hover:text-[var(--pe-accent-strong)]",
+                  )}
                 >
-                  <Sparkles className="h-3 w-3" />
-                  {question}
+                  {action.kind === "action" ? (
+                    <Zap className="h-3 w-3" />
+                  ) : (
+                    <Sparkles className="h-3 w-3" />
+                  )}
+                  {action.text}
                 </button>
               ))}
             </div>

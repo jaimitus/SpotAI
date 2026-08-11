@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Auto-generated from git history with `npm run changelog:all`.
 
+## [v1.4.3] - 2026-08-11
+
+### ✨ New
+
+- **AI-suggested document actions**: instead of the fixed three suggested
+  questions, the model now reads the indexed documents and proposes questions
+  and concrete actions related to their real content (no documents indexed =
+  nothing shown).
+- **One-click suggestions**: clicking a suggested question or action sends it
+  immediately — no need to press Enter or the send arrow.
+- **Regenerate suggestions**: a refresh button next to the suggestion header
+  asks the model for a different set of suggestions without touching the
+  documents or the prompt.
+
+### 🔧 Internal
+
+- New non-streaming `complete_text()` provider helper (Ollama, Anthropic and
+  OpenAI-compatible) reused by the suggestion engine.
+- New `suggest_document_actions` command with a pure, unit-tested
+  `parse_suggested_actions` parser (`?` questions / `!` actions).
+- Suggested-action chips are capped to 6 and generation is debounced and
+  dependency-scoped so unrelated settings changes never trigger a model call.
+
 ## [v1.4.2] - 2026-08-11
 
 ## 📚 Documentation
