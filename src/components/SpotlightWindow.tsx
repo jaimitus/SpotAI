@@ -1355,6 +1355,25 @@ export function SpotlightWindow() {
       finalPrompt = buildActionPrompt("explain", undefined, currentLang);
     }
 
+    // Automatically query RAG if documents are indexed and user is asking a question
+    let ragContext = "";
+    if (ragDocumentCount > 0 && finalPrompt) {
+      try {
+        ragContext = await ragGetContext(finalPrompt, 5);
+      } catch {
+        // RAG query failed, continue without context
+        ragContext = "";
+      }
+    }
+
+    // Combine RAG context with clipboard context if both exist
+    let combinedContext = contextText || null;
+    if (ragContext && combinedContext) {
+      combinedContext = `${combinedContext}\n\n--- Document Context ---\n${ragContext}`;
+    } else if (ragContext) {
+      combinedContext = ragContext;
+    }
+
     const conversationAtSubmit = activeConversationIdRef.current;
     // Disarm any pending quick-action auto-insert immediately: only the submit
     // that started from the shortcut may insert, and it must not survive a chat
@@ -1368,7 +1387,7 @@ export function SpotlightWindow() {
       provider,
       model,
       prompt: finalPrompt,
-      contextText: contextText || null,
+      contextText: combinedContext,
       imageDataUrl: contextImage?.dataUrl ?? null,
       host: resolveHost(provider, settings),
       systemPrompt: settings.systemPrompt || null,
