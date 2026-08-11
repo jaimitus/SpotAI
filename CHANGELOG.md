@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Auto-generated from git history with `npm run changelog:all`.
 
+## [v1.4.4] - 2026-08-11
+
+## ✨ New Features
+
+- v1.4.4 - RAG doc selection, thinking models, direct send, stop/retry and context CTA
+
+## 📚 Documentation
+
+- add CHANGELOG entry for v1.4.3
+
+
 ## [v1.4.3] - 2026-08-11
 
 ## 📚 Documentation
