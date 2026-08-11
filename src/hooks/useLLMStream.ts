@@ -18,18 +18,30 @@ export interface UseLLMStreamResult {
   reset: () => void;
 }
 
+// Batch tokens to reduce React state updates and improve streaming performance
+const TOKEN_BATCH_SIZE = 3;
+
 export function useLLMStream(): UseLLMStreamResult {
   const [response, setResponse] = useState("");
   const [status, setStatus] = useState<StreamStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const bufferRef = useRef("");
+  const tokenCountRef = useRef(0);
   const statusRef = useRef<StreamStatus>("idle");
   const activeRequestRef = useRef<string | null>(null);
   const sequenceRef = useRef(0);
 
+  const flushBuffer = useCallback(() => {
+    if (bufferRef.current) {
+      setResponse(bufferRef.current);
+      tokenCountRef.current = 0;
+    }
+  }, []);
+
   const applyToken = useCallback((event: TokenEvent) => {
     if (event.requestId !== activeRequestRef.current) return;
     if (event.error) {
+      flushBuffer();
       setError(event.error);
       setStatus("error");
       statusRef.current = "error";
@@ -37,13 +49,18 @@ export function useLLMStream(): UseLLMStreamResult {
     }
     if (event.token) {
       bufferRef.current += event.token;
-      setResponse(bufferRef.current);
+      tokenCountRef.current++;
+      // Batch multiple tokens before triggering a React update
+      if (tokenCountRef.current >= TOKEN_BATCH_SIZE) {
+        flushBuffer();
+      }
     }
     if (event.done) {
+      flushBuffer();
       setStatus("done");
       statusRef.current = "done";
     }
-  }, []);
+  }, [flushBuffer]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
