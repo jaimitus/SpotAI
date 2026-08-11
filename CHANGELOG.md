@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Auto-generated from git history with `npm run changelog:all`.
 
+## [v1.4.2] - 2026-08-11
+
+### ✨ New
+
+- RAG auto-context toggle in Settings (General → Ask your files): prompts can
+  optionally skip attaching indexed document chunks
+- RAG context badge under the prompt input showing attached chunks and sources
+- Clickable citations [1] [2] in the badge that open the source document
+- Reveal-in-folder button in the badge (`explorer /select,<path>` on Windows)
+
 ## [v1.4.1] - 2026-08-11
 
 ## 📚 Documentation

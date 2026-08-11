@@ -145,6 +145,7 @@ pub fn run() {
             commands::show_window,
             commands::check_ollama_health,
             commands::open_external_url,
+            commands::reveal_in_folder,
             commands::export_settings_to_file,
             commands::import_settings_from_file,
             commands::write_text_to_file,

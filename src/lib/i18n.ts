@@ -316,6 +316,13 @@ export const translations = {
     ragSuggestSummary: "What is {doc} about?",
     ragSuggestKeyPoints: "What are the key points of {doc}?",
     ragSuggestCompare: "How do {doc1} and {doc2} relate?",
+    ragAutoContext: "Auto-include document context",
+    ragAutoContextDesc:
+      "When asking with indexed files, automatically attach matching document chunks with [1] [2] citations",
+    ragContextInjected: "Document context attached to this prompt",
+    ragContextChunks: "{0} chunks",
+    ragCitationOpen: "Open {0}",
+    ragCitationReveal: "Reveal {0} in folder",
   },
   es: {
     appTitle: "SpotAI",
@@ -631,6 +638,13 @@ export const translations = {
     ragSuggestSummary: "¿De qué trata {doc}?",
     ragSuggestKeyPoints: "¿Cuáles son los puntos clave de {doc}?",
     ragSuggestCompare: "¿Cómo se relacionan {doc1} y {doc2}?",
+    ragAutoContext: "Incluir contexto de documentos",
+    ragAutoContextDesc:
+      "Al preguntar con archivos indexados, añade automáticamente fragmentos coincidentes con citas [1] [2]",
+    ragContextInjected: "Contexto de documentos adjuntado a este prompt",
+    ragContextChunks: "{0} fragmentos",
+    ragCitationOpen: "Abrir {0}",
+    ragCitationReveal: "Mostrar {0} en la carpeta",
   },
   de: {
     appTitle: "SpotAI",
@@ -951,6 +965,13 @@ export const translations = {
     ragSuggestSummary: "Worum geht es in {doc}?",
     ragSuggestKeyPoints: "Was sind die wichtigsten Punkte von {doc}?",
     ragSuggestCompare: "Wie hängen {doc1} und {doc2} zusammen?",
+    ragAutoContext: "Dokumentkontext automatisch einfügen",
+    ragAutoContextDesc:
+      "Bei Fragen mit indexierten Dateien passende Dokumentfragmente mit [1] [2] Zitaten anhängen",
+    ragContextInjected: "Diesem Prompt wurde Dokumentkontext hinzugefügt",
+    ragContextChunks: "{0} Fragmente",
+    ragCitationOpen: "{0} öffnen",
+    ragCitationReveal: "{0} im Ordner anzeigen",
   },
   pt: {
     appTitle: "SpotAI",
@@ -1282,6 +1303,13 @@ export const translations = {
     ragSuggestSummary: "Sobre o que é {doc}?",
     ragSuggestKeyPoints: "Quais são os pontos principais de {doc}?",
     ragSuggestCompare: "Como {doc1} e {doc2} se relacionam?",
+    ragAutoContext: "Incluir contexto de documentos",
+    ragAutoContextDesc:
+      "Ao perguntar com arquivos indexados, anexa automaticamente trechos correspondentes com citações [1] [2]",
+    ragContextInjected: "Contexto de documentos anexado a este prompt",
+    ragContextChunks: "{0} trechos",
+    ragCitationOpen: "Abrir {0}",
+    ragCitationReveal: "Mostrar {0} na pasta",
   },
   fr: {
     appTitle: "SpotAI",
@@ -1614,6 +1642,13 @@ export const translations = {
     ragSuggestSummary: "De quoi parle {doc} ?",
     ragSuggestKeyPoints: "Quels sont les points clés de {doc} ?",
     ragSuggestCompare: "Comment {doc1} et {doc2} sont-ils liés ?",
+    ragAutoContext: "Inclure le contexte des documents",
+    ragAutoContextDesc:
+      "Lorsque vous posez une question avec des fichiers indexés, joindre automatiquement les extraits pertinents avec des citations [1] [2]",
+    ragContextInjected: "Contexte de documents joint à ce prompt",
+    ragContextChunks: "{0} extraits",
+    ragCitationOpen: "Ouvrir {0}",
+    ragCitationReveal: "Afficher {0} dans le dossier",
   },
 } as const;
 

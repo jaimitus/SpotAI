@@ -94,10 +94,25 @@ test("input is ready; send stays disabled until a model is available", async ({ 
 // recording (Alt+V race) or already released, for the reconciliation tests.
 function buildTauriMock(
   engine: "native" | "whisper" = "native",
-  opts: { startError?: string | null; stopError?: string | null } = {},
+  opts: {
+    startError?: string | null;
+    stopError?: string | null;
+    // When set, `rag_query` returns these results (drives the RAG context
+    // badge flow) and a local Ollama model is reported as available so the
+    // prompt can actually be submitted.
+    ragResults?: Array<{
+      chunkId: string;
+      documentPath: string;
+      content: string;
+      similarity: number;
+      metadata: { fileType: string; fileSize: number; createdAt: number; lineStart?: number; lineEnd?: number };
+    }>;
+  } = {},
 ): string {
   const startError = JSON.stringify(opts.startError ?? null);
   const stopError = JSON.stringify(opts.stopError ?? null);
+  const ragResults = JSON.stringify(opts.ragResults ?? []);
+  const hasModel = opts.ragResults ? "true" : "false";
   return `
 (() => {
   const callbacks = new Map();
@@ -160,11 +175,16 @@ function buildTauriMock(
         case "get_api_key_status":
           return {};
         case "check_ollama_health":
-          return { ollama: false, ollamaVersion: null };
+          return ${hasModel}
+            ? { ollama: true, ollamaVersion: "0.5.1" }
+            : { ollama: false, ollamaVersion: null };
         case "fetch_cloud_models":
-        case "fetch_local_models":
         case "fetch_lmstudio_models":
           return [];
+        case "fetch_local_models":
+          return ${hasModel}
+            ? [{ id: "llama3", name: "llama3", provider: "ollama" }]
+            : [];
         case "register_shortcut":
           return { registered: true, error: null };
         // The real backend resolves this by registering the callback passed as
@@ -219,6 +239,41 @@ function buildTauriMock(
           );
         case "rag_get_stats":
           return { documentCount: 1, chunkCount: 2 };
+        case "rag_get_documents":
+          // One indexed document so the spotlight sync completes (it lists
+          // documents to build suggested questions / the auto-context gate).
+          return [
+            {
+              path: "C:\\docs\\manual.md",
+              name: "manual.md",
+              fileType: "md",
+              size: 42,
+              indexedAt: 0,
+              chunkCount: 2,
+            },
+          ];
+        case "rag_query":
+          // Mirror the Rust backend: semantic search over the index. The test
+          // provides fixed results to drive the badge flow.
+          return {
+            results: ${ragResults},
+            query: args.query || "",
+            totalChunksSearched: ${ragResults}.length,
+          };
+        case "send_prompt_stream":
+          // Resolve immediately so a submitted prompt completes the turn
+          // without an actual model behind it.
+          return null;
+        case "open_external_url":
+          // Record the requested target so tests can assert the citation click
+          // asked the backend to open the source document.
+          window.__lastOpenedUrl = args.url;
+          return null;
+        case "reveal_in_folder":
+          // Record the requested path so tests can assert the reveal click
+          // asked the backend to show the source file in the file manager.
+          window.__lastRevealedPath = args.path;
+          return null;
         case "stop_voice_capture":
           if (${stopError}) {
             // The backend already stopped (e.g. Alt+V was released): recording
@@ -672,6 +727,104 @@ test("capture button is hidden without the Tauri runtime", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Incognito" }),
   ).toBeVisible();
+});
+
+test("RAG auto-context toggle is on by default and persists when disabled", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTitle("Settings (Ctrl+,)").click();
+
+  // The toggle lives in the General tab, grouped under the RAG section.
+  const ragSection = page.locator("section", { hasText: "Ask your files" }).last();
+  const toggle = ragSection.getByRole("switch");
+  await expect(toggle).toBeVisible();
+
+  // Default behaviour: auto-include document context is enabled.
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+
+  // Turn it off and save: the preference must persist like any other setting.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await page.getByRole("button", { name: "Save Settings" }).click();
+
+  const stored = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("spotai.settings.v1") || "{}"),
+  );
+  expect(stored.ragAutoContext).toBe(false);
+});
+
+test("submitting with matching documents shows the RAG context badge", async ({ page }) => {
+  // The mock provides RAG results for any query plus a local model so the
+  // prompt can be submitted. The auto-context toggle defaults to enabled.
+  // Seed the provider so the mocked Ollama model is actually selected.
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "spotai.settings.v1",
+      JSON.stringify({ defaultProvider: "ollama", defaultModel: "llama3" }),
+    );
+  });
+  await page.addInitScript(
+    buildTauriMock("native", {
+      ragResults: [
+        {
+          chunkId: "c1",
+          documentPath: "C:\\docs\\manual.md",
+          content: "SpotAI indexes local files",
+          similarity: 0.91,
+          metadata: { fileType: "md", fileSize: 42, createdAt: 0, lineStart: 1, lineEnd: 2 },
+        },
+        {
+          chunkId: "c2",
+          documentPath: "C:\\docs\\manual.md",
+          content: "Ask questions about them",
+          similarity: 0.87,
+          metadata: { fileType: "md", fileSize: 42, createdAt: 0 },
+        },
+      ],
+    }),
+  );
+  await page.goto("/");
+
+  // The RAG state sync is async: wait for a suggested question (which is set
+  // in the same .then as the document count) so the auto-context gate is armed.
+  await expect(
+    page.getByText("What is manual.md about?", { exact: true }),
+  ).toBeVisible();
+
+  // Send only enables once both a prompt and a model exist. Fill the prompt
+  // first, then wait for the mocked local model to arrive.
+  await page.locator("textarea").first().fill("what does spotai index?");
+  await expect(page.getByTitle("Send prompt")).toBeEnabled();
+  await page.keyboard.press("Enter");
+
+  // The badge under the input reports the attached chunks and the source file.
+  await expect(page.getByText("2 chunks", { exact: true })).toBeVisible();
+  await expect(page.getByText("manual.md", { exact: true })).toBeVisible();
+
+  // The clickable citations [1] [2] render inside the badge.
+  const citation = page.getByRole("button", { name: "Open manual.md" }).first();
+  await expect(citation).toBeVisible();
+  await expect(citation).toHaveText("[1]");
+
+  // Clicking a citation asks the backend to open the source document.
+  await citation.click();
+  await expect
+    .poll(async () =>
+      page.evaluate(() => (window as unknown as { __lastOpenedUrl?: string }).__lastOpenedUrl),
+    )
+    .toBe("C:\\docs\\manual.md");
+
+  // The reveal-in-folder button also exists and asks the backend to show the
+  // source document in the file manager.
+  const reveal = page.getByRole("button", { name: "Reveal manual.md in folder" });
+  await expect(reveal).toBeVisible();
+  await reveal.click();
+  await expect
+    .poll(async () =>
+      page.evaluate(() =>
+        (window as unknown as { __lastRevealedPath?: string }).__lastRevealedPath,
+      ),
+    )
+    .toBe("C:\\docs\\manual.md");
 });
 
 test("dropping supported files into the RAG panel indexes them", async ({ page }) => {

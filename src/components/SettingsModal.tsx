@@ -6,6 +6,7 @@ import {
   Check,
   Cloud,
   Cpu,
+  Database,
   Download,
   ExternalLink,
   Eye,
@@ -1044,6 +1045,47 @@ export function SettingsModal({
                       className={cn(
                         "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
                         draft.autoInsertQuickActions !== false
+                          ? "translate-x-[18px]"
+                          : "translate-x-[2px]",
+                      )}
+                    />
+                  </span>
+                </button>
+              </section>
+
+              {/* RAG auto-context: attach indexed document chunks to prompts */}
+              <section className="space-y-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--pe-text-soft)]">
+                  <Database className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>{t(currentLang, "ragTitle")}</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={draft.ragAutoContext !== false}
+                  onClick={() => update("ragAutoContext", draft.ragAutoContext === false)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-[var(--pe-border)] bg-[var(--pe-input)] px-3.5 py-2.5 text-left transition hover:bg-[var(--pe-hover)]"
+                >
+                  <span>
+                    <span className="block text-[12px] font-medium text-[var(--pe-text)]">
+                      {t(currentLang, "ragAutoContext")}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] leading-relaxed text-[var(--pe-text-muted)]">
+                      {t(currentLang, "ragAutoContextDesc")}
+                    </span>
+                  </span>
+                  <span
+                    className={cn(
+                      "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
+                      draft.ragAutoContext !== false
+                        ? "bg-cyan-500/80"
+                        : "bg-[var(--pe-input-hover)]",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+                        draft.ragAutoContext !== false
                           ? "translate-x-[18px]"
                           : "translate-x-[2px]",
                       )}

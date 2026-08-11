@@ -314,6 +314,13 @@ export async function openExternalUrl(url: string): Promise<void> {
   window.open(url, "_blank", "noreferrer");
 }
 
+/** Reveals a local file in the OS file manager (Explorer selects it). No-op
+ *  in browser mode, where there is no file manager to open. */
+export async function revealInFolder(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("reveal_in_folder", { path });
+}
+
 export async function exportSettingsToFile(path: string, content: string): Promise<void> {
   await invoke("export_settings_to_file", { path, content });
 }

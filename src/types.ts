@@ -128,6 +128,9 @@ export interface AppSettings {
   /** When enabled, quick-action results are inserted into the previous app
    *  automatically; when disabled they are only copied to the clipboard. */
   autoInsertQuickActions?: boolean;
+  /** When enabled (default), prompts automatically include RAG context from
+   *  indexed documents with [1] [2] citations. Off = plain prompts only. */
+  ragAutoContext?: boolean;
   /** Speech-to-text engine preference. */
   voiceEngine?: string;
   /** Name of the microphone chosen in Settings (empty = OS default). */

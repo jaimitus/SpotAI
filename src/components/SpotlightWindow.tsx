@@ -7,6 +7,7 @@ import {
   Download,
   ExternalLink,
   EyeOff,
+  FolderOpen,
   Mic,
   ClipboardPaste,
   Copy,
@@ -77,6 +78,7 @@ import {
   stopVoiceCapture,
   transcribeVoiceWav,
   openExternalUrl,
+  revealInFolder,
   registerShortcut,
   resolveHost,
   analyzeCommandSafety,
@@ -251,6 +253,14 @@ export function SpotlightWindow() {
   const [showRagPanel, setShowRagPanel] = useState(false);
   const [ragDocumentCount, setRagDocumentCount] = useState<number>(0);
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
+  // Set when a submitted prompt had matching RAG chunks attached: the badge
+  // under the input shows the user how much document context was injected,
+  // plus clickable [1] [2] citations that open the source documents.
+  const [ragInjectedContext, setRagInjectedContext] = useState<{
+    chunkCount: number;
+    docNames: string[];
+    citations: { index: number; path: string; name: string }[];
+  } | null>(null);
   // CLI injection (/exec): command awaiting confirmation plus its result.
   const [pendingCommand, setPendingCommand] = useState<ShellCommand | null>(null);
   const [execOutput, setExecOutput] = useState<string | null>(null);
@@ -512,6 +522,8 @@ export function SpotlightWindow() {
     // Drop any in-flight voice transcription so it cannot land in a newer session.
     voiceSessionRef.current += 1;
     cancelWaitingForTranscription();
+    // A cleared overlay has no prompt to attach document context to.
+    setRagInjectedContext(null);
   }, [status, stop, reset, setPromptValue, cancelWaitingForTranscription]);
 
   const newChat = useCallback(() => {
@@ -530,6 +542,9 @@ export function SpotlightWindow() {
     // Ignore any in-flight transcription when the overlay is dismissed.
     voiceSessionRef.current += 1;
     cancelWaitingForTranscription();
+    // A hidden overlay must not keep a stale document-context badge: the next
+    // time the window shows, no context is attached to the fresh prompt.
+    setRagInjectedContext(null);
     void hideWindow();
   }, [status, stop, reset, setPromptValue, cancelWaitingForTranscription]);
 
@@ -1391,22 +1406,38 @@ export function SpotlightWindow() {
       finalPrompt = buildActionPrompt("explain", undefined, currentLang);
     }
 
-    // Automatically query RAG if documents are indexed and user is asking a question
+    // Automatically query RAG when documents are indexed and the user enabled
+    // the auto-context toggle (default on). Skipped when disabled so prompts
+    // stay plain. The badge under the input mirrors what was attached.
     let ragContext = "";
-    if (ragDocumentCount > 0 && finalPrompt) {
+    setRagInjectedContext(null);
+    if (settings.ragAutoContext !== false && ragDocumentCount > 0 && finalPrompt) {
       try {
         const ragResult = await ragQuery(finalPrompt, 5);
         if (ragResult.results.length > 0) {
           // Format results with citations [1], [2], etc.
-          const contextParts = ragResult.results.map((r, idx) => {
+          const citations = ragResult.results.map((r, idx) => {
             const fileName = r.documentPath.split(/[\\/]/).pop() ?? r.documentPath;
             const lineInfo =
               r.metadata.lineStart !== undefined
                 ? ` (lines ${r.metadata.lineStart}-${r.metadata.lineEnd ?? r.metadata.lineStart})`
                 : "";
-            return `[${idx + 1}] ${fileName}${lineInfo}:\n${r.content}`;
+            return {
+              index: idx + 1,
+              path: r.documentPath,
+              name: fileName,
+              // Reused below for the prompt context text.
+              text: `[${idx + 1}] ${fileName}${lineInfo}:\n${r.content}`,
+            };
           });
-          ragContext = contextParts.join("\n\n");
+          ragContext = citations.map((c) => c.text).join("\n\n");
+          // Remember what was attached so the badge can show it and the
+          // clickable citations can open the source documents.
+          setRagInjectedContext({
+            chunkCount: ragResult.results.length,
+            docNames: [...new Set(citations.map((c) => c.name))],
+            citations: citations.map(({ index, path, name }) => ({ index, path, name })),
+          });
         }
       } catch {
         // RAG query failed, continue without context
@@ -2134,6 +2165,76 @@ export function SpotlightWindow() {
             />
           )}
         </form>
+
+        {/* RAG context badge: shows when the submitted prompt carried matching
+            document chunks (citations [1] [2]). Dismissed on overlay clear. */}
+        {ragInjectedContext && (
+          <div className="px-3 pb-1">
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full border border-violet-400/30 bg-violet-400/10 px-2.5 py-1 text-[10px] text-[var(--pe-violet-strong)]"
+              title={t(currentLang, "ragContextInjected")}
+            >
+              <Database className="h-3 w-3 shrink-0" />
+              <span className="font-medium">
+                {t(currentLang, "ragContextChunks").replace(
+                  "{0}",
+                  String(ragInjectedContext.chunkCount),
+                )}
+              </span>
+              <span className="max-w-[180px] truncate text-[var(--pe-text-soft)]">
+                {ragInjectedContext.docNames.slice(0, 2).join(", ")}
+                {ragInjectedContext.docNames.length > 2 ? "…" : ""}
+              </span>
+              {/* Clickable citations [1] [2] that open the source document. Capped
+                  at 3 to keep the pill compact; extra sources stay in the docs
+                  summary above. */}
+              {ragInjectedContext.citations.slice(0, 3).map((citation) => {
+                const openLabel = t(currentLang, "ragCitationOpen").replace(
+                  "{0}",
+                  citation.name,
+                );
+                return (
+                  <button
+                    key={citation.index}
+                    type="button"
+                    onClick={() => {
+                      // `cmd /c start "" <path>` opens the file with its default
+                      // app; in browser mode there is no runtime, so ignore.
+                      void openExternalUrl(citation.path).catch(() => undefined);
+                    }}
+                    title={openLabel}
+                    aria-label={openLabel}
+                    className="rounded-full border border-violet-400/25 bg-violet-400/10 px-1.5 py-0.5 font-mono text-[9px] leading-none text-[var(--pe-violet-strong)] transition hover:border-violet-400/60 hover:bg-violet-400/20 hover:text-[var(--pe-violet-strong)]"
+                  >
+                    [{citation.index}]
+                  </button>
+                );
+              })}
+              {/* Reveal the first source document in the OS file manager */}
+              {ragInjectedContext.citations[0] && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void revealInFolder(ragInjectedContext.citations[0].path).catch(
+                      () => undefined,
+                    );
+                  }}
+                  title={t(currentLang, "ragCitationReveal").replace(
+                    "{0}",
+                    ragInjectedContext.citations[0].name,
+                  )}
+                  aria-label={t(currentLang, "ragCitationReveal").replace(
+                    "{0}",
+                    ragInjectedContext.citations[0].name,
+                  )}
+                  className="rounded-full border border-violet-400/25 bg-violet-400/10 p-1 text-[var(--pe-violet-strong)] transition hover:border-violet-400/60 hover:bg-violet-400/20 hover:text-[var(--pe-violet-strong)]"
+                >
+                  <FolderOpen className="h-3 w-3" />
+                </button>
+              )}
+            </span>
+          </div>
+        )}
 
         {/* Suggested questions for RAG documents */}
         {suggestedQuestions.length > 0 && !isStreaming && (

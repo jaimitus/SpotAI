@@ -796,6 +796,38 @@ pub fn open_external_url(url: String) -> Result<(), String> {
     }
 }
 
+/// Reveals a local file in the OS file manager (Explorer on Windows) with the
+/// file selected. Used by the RAG citation badge to jump to the source file.
+#[tauri::command]
+pub fn reveal_in_folder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(format!("/select,{}", path.trim()))
+            .spawn()
+            .map_err(|error| format!("Failed to open Explorer: {error}"))?;
+        Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|error| format!("Failed to reveal file: {error}"))?;
+        Ok(())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = path;
+        Err("Reveal in folder is not supported on Linux".to_string())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
 /// RAG: Index multiple files for semantic search
 #[tauri::command]
 pub async fn rag_index_files(
